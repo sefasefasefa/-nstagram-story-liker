@@ -1,0 +1,27 @@
+kind = "web"
+previewPath = "/"
+title = "Instagram API Explorer"
+version = "1.0.0"
+id = "artifacts/instagram-explorer"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 18900
+
+[services.development]
+run = "pnpm --filter @workspace/instagram-explorer run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/instagram-explorer", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/instagram-explorer/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "18900"
+BASE_PATH = "/"

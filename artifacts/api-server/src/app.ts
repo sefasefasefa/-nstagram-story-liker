@@ -25,7 +25,21 @@ app.use(
     },
   }),
 );
-app.use(cors());
+// Restrict CORS to same-origin and Replit dev domain only
+const allowedOriginPattern = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$|\.replit\.dev(:\d+)?$/;
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Allow server-to-server (no origin) and matching origins
+      if (!origin || allowedOriginPattern.test(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
+    credentials: true,
+  }),
+);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

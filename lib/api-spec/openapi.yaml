@@ -3,20 +3,26 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Instagram API Explorer backend
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: session
+    description: Session management
+  - name: instagram
+    description: Instagram API proxy endpoints
+  - name: history
+    description: Request history
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +30,258 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /session:
+    get:
+      operationId: getSession
+      tags: [session]
+      summary: Get current session status
+      responses:
+        "200":
+          description: Session info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionStatus"
+    post:
+      operationId: setSession
+      tags: [session]
+      summary: Set Instagram session cookies
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SessionInput"
+      responses:
+        "200":
+          description: Session set successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionStatus"
+    delete:
+      operationId: clearSession
+      tags: [session]
+      summary: Clear current session
+      responses:
+        "200":
+          description: Session cleared
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /instagram/profile:
+    get:
+      operationId: getProfile
+      tags: [instagram]
+      summary: Get user profile by username
+      parameters:
+        - name: username
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: User profile data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /instagram/user/{userId}:
+    get:
+      operationId: getUserInfo
+      tags: [instagram]
+      summary: Get detailed user info by user ID
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: User info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse"
+
+  /instagram/post/{shortcode}:
+    get:
+      operationId: getPost
+      tags: [instagram]
+      summary: Get post details by shortcode (PolarisPostRootQuery)
+      parameters:
+        - name: shortcode
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Post details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse"
+
+  /instagram/reels/{shortcode}:
+    get:
+      operationId: getReels
+      tags: [instagram]
+      summary: Get Reels/video info by shortcode
+      parameters:
+        - name: shortcode
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Reels info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse"
+
+  /instagram/hashtag:
+    get:
+      operationId: getHashtag
+      tags: [instagram]
+      summary: Get posts by hashtag
+      parameters:
+        - name: tag
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: after
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Hashtag posts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse"
+
+  /instagram/stories:
+    get:
+      operationId: getStories
+      tags: [instagram]
+      summary: Get stories tray (requires session)
+      responses:
+        "200":
+          description: Stories tray
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse"
+
+  /instagram/feed:
+    get:
+      operationId: getUserFeed
+      tags: [instagram]
+      summary: Get user feed posts (paginated)
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: after
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: User feed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse"
+
+  /instagram/comments:
+    get:
+      operationId: getComments
+      tags: [instagram]
+      summary: Get comments for a post
+      parameters:
+        - name: shortcode
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: after
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Post comments
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse"
+
+  /instagram/graphql:
+    post:
+      operationId: customGraphQL
+      tags: [instagram]
+      summary: Send a custom GraphQL query with doc_id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GraphQLInput"
+      responses:
+        "200":
+          description: GraphQL response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse"
+
+  /history:
+    get:
+      operationId: getHistory
+      tags: [history]
+      summary: Get request history
+      responses:
+        "200":
+          description: Request history list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HistoryListResponse"
+    delete:
+      operationId: clearHistory
+      tags: [history]
+      summary: Clear request history
+      responses:
+        "200":
+          description: History cleared
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +292,140 @@ components:
       required:
         - status
 
+    SessionStatus:
+      type: object
+      properties:
+        active:
+          type: boolean
+        username:
+          type: string
+        userId:
+          type: string
+        csrfToken:
+          type: string
+        hasSessionId:
+          type: boolean
+      required:
+        - active
+
+    SessionInput:
+      type: object
+      properties:
+        sessionId:
+          type: string
+        csrfToken:
+          type: string
+        username:
+          type: string
+        userId:
+          type: string
+        dsUserId:
+          type: string
+      required:
+        - sessionId
+        - csrfToken
+
+    ApiResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          additionalProperties: true
+        endpoint:
+          type: string
+        method:
+          type: string
+        statusCode:
+          type: integer
+        durationMs:
+          type: integer
+        requestHeaders:
+          type: object
+          additionalProperties:
+            type: string
+        timestamp:
+          type: string
+        error:
+          type: string
+      required:
+        - success
+        - endpoint
+        - method
+        - statusCode
+        - durationMs
+        - timestamp
+
+    GraphQLInput:
+      type: object
+      properties:
+        docId:
+          type: string
+        variables:
+          type: object
+          additionalProperties: true
+      required:
+        - docId
+        - variables
+
+    HistoryEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        endpoint:
+          type: string
+        method:
+          type: string
+        statusCode:
+          type: integer
+        durationMs:
+          type: integer
+        timestamp:
+          type: string
+        success:
+          type: boolean
+        label:
+          type: string
+      required:
+        - id
+        - endpoint
+        - method
+        - statusCode
+        - durationMs
+        - timestamp
+        - success
+        - label
+
+    HistoryListResponse:
+      type: object
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/HistoryEntry"
+      required:
+        - entries
+
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+      required:
+        - success
+        - message
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        error:
+          type: string
+      required:
+        - success
+        - error

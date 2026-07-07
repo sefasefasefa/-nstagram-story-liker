@@ -1,36 +1,50 @@
-# [Project name]
+# Instagram API Explorer
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+A developer tool for security researchers and engineers to inspect and test Instagram's undocumented web API endpoints in real time. Features a dark terminal-inspired UI with request history, session management, and interactive JSON response inspection.
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
+- `pnpm --filter @workspace/api-server run dev` — run the API server (port 8080)
+- `pnpm --filter @workspace/instagram-explorer run dev` — run the frontend (port 18900)
 - `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
 
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
-- API: Express 5
-- DB: PostgreSQL + Drizzle ORM
-- Validation: Zod (`zod/v4`), `drizzle-zod`
+- API: Express 5 (proxy server for Instagram endpoints)
+- Frontend: React + Vite + Tailwind v4 + shadcn/ui
+- State: In-memory session + request history (single-user tool)
 - API codegen: Orval (from OpenAPI spec)
 - Build: esbuild (CJS bundle)
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `lib/api-spec/openapi.yaml` — OpenAPI spec (source of truth for all contracts)
+- `artifacts/api-server/src/lib/instagram.ts` — Instagram API proxy client (REST + GraphQL)
+- `artifacts/api-server/src/lib/session.ts` — In-memory session store + header builder
+- `artifacts/api-server/src/lib/history.ts` — In-memory request history (last 100 entries)
+- `artifacts/api-server/src/routes/instagram.ts` — Proxy route handlers
+- `artifacts/instagram-explorer/src/pages/` — Frontend pages (dashboard, profile, post, graphql, hashtag, stories, session)
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- Single-user tool: session and history are global in-memory state (intentional for personal dev tool)
+- CORS locked to localhost + *.replit.dev to prevent cross-origin abuse of shared session state
+- Upstream HTTP status codes are propagated from Instagram to client (not always 200)
+- Dark mode is forced globally via `document.documentElement.classList.add('dark')` in main.tsx (Tailwind v4 doesn't support `@apply dark`)
+- GraphQL endpoints use Instagram's doc_id pattern (pre-compiled server-side queries), not freeform GraphQL
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+Pages:
+- `/` — Dashboard: session status, endpoint modules, network request log
+- `/profile` — Profile explorer: search by username, view follower/following stats, bio, user ID
+- `/post` — Post inspector: fetch by shortcode, view media URLs, comments, likes
+- `/graphql` — GraphQL builder: select known doc_ids or enter custom, edit variables JSON, inspect raw response
+- `/hashtag` — Hashtag explorer: paginated posts by tag
+- `/stories` — Stories tray (requires authenticated session)
+- `/session` — Session manager: set sessionId + csrfToken, view security headers reference
 
 ## User preferences
 
@@ -38,7 +52,10 @@ _Populate as you build — explicit user instructions worth remembering across s
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- Tailwind v4: cannot use `@apply dark` — add the `dark` class to `document.documentElement` via JS instead
+- OpenAPI codegen TS2308 collision: endpoints with BOTH path params AND query params generate `*Params` types in both `api.ts` and `types/` — workaround: move path params to query params for paginated endpoints
+- Instagram endpoints require specific headers (X-IG-App-ID, X-ASBD-ID etc.) even for public endpoints — see `lib/session.ts:buildInstagramHeaders()`
+- The PolarisPostRootQuery doc_id changed to `27128499623469141` in June 2026 (old: `8845758582119845`)
 
 ## Pointers
 
