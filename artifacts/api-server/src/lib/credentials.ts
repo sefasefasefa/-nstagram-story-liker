@@ -9,7 +9,12 @@ import { readFileSync, writeFileSync, unlinkSync, existsSync } from "fs";
 import { join } from "path";
 
 const CREDS_FILE = join(process.cwd(), ".credentials.json");
-const SECRET = process.env["SESSION_SECRET"] ?? "default-dev-secret-must-be-32chars!";
+
+function getSecret(): string {
+  const s = process.env["SESSION_SECRET"];
+  if (!s) throw new Error("SESSION_SECRET is required but not set. Add it in Replit Secrets.");
+  return s;
+}
 
 interface StoredCredentials {
   username: string;
@@ -24,7 +29,7 @@ export interface Credentials {
 }
 
 function deriveKey(): Buffer {
-  return scryptSync(SECRET, "ig-cred-salt-v1", 32) as Buffer;
+  return scryptSync(getSecret(), "ig-cred-salt-v1", 32) as Buffer;
 }
 
 export function saveCredentials(username: string, password: string): void {

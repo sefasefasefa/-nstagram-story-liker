@@ -22,7 +22,10 @@ interface AutoStatus {
   hasCredentials: boolean;
   isSessionActive: boolean;
   lastRefreshAt: string | null;
+  lastRefreshMethod: "token_refresh" | "full_login" | null;
   refreshCount: number;
+  tokenRefreshCount: number;
+  fullLoginCount: number;
   error: string | null;
 }
 

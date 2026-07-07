@@ -8,9 +8,19 @@ async function igFetch(url: string, init: RequestInit): Promise<Response> {
   if (resp.status === 401) {
     const ok = await attemptAutoRefresh();
     if (ok) {
-      // Rebuild with fresh session headers, keep rest of init
-      const freshHeaders = { ...buildInstagramHeaders(), ...(init.headers as Record<string, string> ?? {}) };
-      resp = await fetch(url, { ...init, headers: freshHeaders });
+      // Rebuild auth headers entirely from the refreshed session.
+      // Do NOT merge stale pre-refresh headers — that would re-send the old
+      // Cookie / X-CSRFToken and produce another 401.
+      const freshHeaders = buildInstagramHeaders();
+      // Preserve any non-auth request-specific headers (Content-Type, etc.)
+      // but let session headers win.
+      const overrides = init.headers as Record<string, string> | undefined ?? {};
+      const merged: Record<string, string> = {};
+      for (const [k, v] of Object.entries(overrides)) {
+        const lower = k.toLowerCase();
+        if (lower !== "cookie" && lower !== "x-csrftoken") merged[k] = v;
+      }
+      resp = await fetch(url, { ...init, headers: { ...merged, ...freshHeaders } });
     }
   }
   return resp;
