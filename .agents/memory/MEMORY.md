@@ -1,0 +1,1 @@
+- [Artifact registration for imported projects](artifact-registration.md) — move dirs, createArtifact, restore source, delete backups, kill stale ports
