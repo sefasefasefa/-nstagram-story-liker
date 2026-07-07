@@ -15,6 +15,7 @@
 import { createCipheriv, randomBytes, randomUUID } from "crypto";
 import _sodium from "libsodium-wrappers";
 import { setSession, clearSession, getSession, buildInstagramHeaders } from "./session.js";
+import { logger } from "./logger.js";
 
 const IG_WEB_BASE  = "https://www.instagram.com";
 const IG_API_BASE  = "https://i.instagram.com";
@@ -151,6 +152,8 @@ async function loginViaMobileApi(username: string, password: string): Promise<Lo
   }
 
   const text = await resp.text().catch(() => "");
+
+  logger.info({ status: resp.status, bodyPreview: text.slice(0, 300) }, "Mobile API login response");
 
   // A non-JSON HTML response almost always means an IP/geo block on this endpoint
   if (text.trimStart().startsWith("<")) {
@@ -445,34 +448,21 @@ async function loginViaWebApi(username: string, password: string): Promise<Login
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
- * Try mobile API first (no IP block on key fetch), fall back to web API.
+ * Try mobile API first (no IP block on key fetch).
+ * Only fall back to the web API on a pure network error (couldn't reach Instagram at all).
+ * If Instagram responded with anything — even an error or block — the web path will behave
+ * the same or worse, so we return the mobile result directly.
  */
 export async function instagramLogin(username: string, password: string): Promise<LoginResult> {
   const mobileResult = await loginViaMobileApi(username, password);
 
-  // If mobile succeeded, or failed with a credential/checkpoint/2FA error
-  // (those would fail on the web path too) — return immediately.
-  if (
-    mobileResult.success ||
-    mobileResult.errorType === "bad_password" ||
-    mobileResult.errorType === "checkpoint" ||
-    mobileResult.errorType === "two_factor"
-  ) {
+  if (mobileResult.errorType !== "network") {
+    // Instagram responded (success, bad password, checkpoint, block, etc.) — use it as-is.
     return mobileResult;
   }
 
-  // Mobile path hit an IP/network/parse error — try the web path as fallback.
-  const webResult = await loginViaWebApi(username, password);
-  if (webResult.success || webResult.errorType !== "ip_block") {
-    return webResult;
-  }
-
-  // Both paths failed — return a combined error.
-  return {
-    success: false,
-    error: `Both login paths failed. Mobile: ${mobileResult.error}. Web: ${webResult.error}. Use Session Manager to paste cookies manually.`,
-    errorType: "ip_block",
-  };
+  // Pure network failure — try web as last resort.
+  return loginViaWebApi(username, password);
 }
 
 // ── Logout ────────────────────────────────────────────────────────────────────
