@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { instagramLogin, instagramLogout } from "../lib/auth.js";
 import { getSession, setSession, clearSession, isSessionActive } from "../lib/session.js";
+import { saveCredentials, clearCredentials } from "../lib/credentials.js";
+import { getAutoSessionStatus } from "../lib/auto-session.js";
 import type { LoginCredentials, SessionInput } from "@workspace/api-zod";
 
 const router = Router();
@@ -13,13 +15,23 @@ router.post("/auth/login", async (req, res) => {
     return;
   }
   const result = await instagramLogin(username, password);
+  if (result.success) {
+    // Persist credentials for auto-refresh
+    saveCredentials(username, password);
+  }
   res.status(result.success ? 200 : 401).json(result);
 });
 
 // POST /auth/logout
 router.post("/auth/logout", async (_req, res) => {
   await instagramLogout();
+  clearCredentials(); // Remove saved credentials so auto-login doesn't re-login
   res.json({ success: true, message: "Logged out" });
+});
+
+// GET /auth/auto-status
+router.get("/auth/auto-status", (_req, res) => {
+  res.json(getAutoSessionStatus());
 });
 
 // GET /auth/me

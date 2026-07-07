@@ -1,5 +1,20 @@
 import { buildInstagramHeaders, getSession } from "./session.js";
 import { addHistoryEntry } from "./history.js";
+import { attemptAutoRefresh } from "./auto-session.js";
+
+/** Fetch with automatic 401 → re-login → retry logic. */
+async function igFetch(url: string, init: RequestInit): Promise<Response> {
+  let resp = await fetch(url, init);
+  if (resp.status === 401) {
+    const ok = await attemptAutoRefresh();
+    if (ok) {
+      // Rebuild with fresh session headers, keep rest of init
+      const freshHeaders = { ...buildInstagramHeaders(), ...(init.headers as Record<string, string> ?? {}) };
+      resp = await fetch(url, { ...init, headers: freshHeaders });
+    }
+  }
+  return resp;
+}
 
 const IG_API_BASE = "https://i.instagram.com";
 
@@ -84,7 +99,7 @@ export async function fetchTimeline(maxId?: string) {
 
   let statusCode = 0;
   try {
-    const resp = await fetch(url.toString(), {
+    const resp = await igFetch(url.toString(), {
       method: "GET",
       headers: buildInstagramHeaders(),
     });
@@ -135,7 +150,7 @@ export async function likeMedia(mediaId: string): Promise<{ success: boolean; me
       media_id: mediaId,
       ...(session?.userId ? { d: "0" } : {}),
     });
-    const resp = await fetch(url, { method: "POST", headers, body: body.toString() });
+    const resp = await igFetch(url, { method: "POST", headers, body: body.toString() });
     addHistoryEntry({ endpoint: url, method: "POST", statusCode: resp.status, durationMs: Date.now() - start, success: resp.ok, label: `Like: ${mediaId}` });
     return { success: resp.ok, message: resp.ok ? "Liked" : `HTTP ${resp.status}` };
   } catch (err) {
@@ -151,7 +166,7 @@ export async function unlikeMedia(mediaId: string): Promise<{ success: boolean; 
 
   try {
     const body = new URLSearchParams({ media_id: mediaId });
-    const resp = await fetch(url, { method: "POST", headers, body: body.toString() });
+    const resp = await igFetch(url, { method: "POST", headers, body: body.toString() });
     addHistoryEntry({ endpoint: url, method: "POST", statusCode: resp.status, durationMs: Date.now() - start, success: resp.ok, label: `Unlike: ${mediaId}` });
     return { success: resp.ok, message: resp.ok ? "Unliked" : `HTTP ${resp.status}` };
   } catch (err) {
@@ -165,7 +180,7 @@ export async function fetchStoriesTray() {
   const url = `${IG_API_BASE}/api/v1/feed/reels_tray/`;
 
   try {
-    const resp = await fetch(url, { headers: buildInstagramHeaders() });
+    const resp = await igFetch(url, { headers: buildInstagramHeaders() });
     addHistoryEntry({ endpoint: url, method: "GET", statusCode: resp.status, durationMs: Date.now() - start, success: resp.ok, label: "Stories Tray" });
 
     if (!resp.ok) return { reels: [], error: `HTTP ${resp.status}` };
@@ -202,7 +217,7 @@ export async function fetchUserStories(userId: string) {
   const url = `${IG_API_BASE}/api/v1/feed/reels_media/?reel_ids=${userId}`;
 
   try {
-    const resp = await fetch(url, { headers: buildInstagramHeaders() });
+    const resp = await igFetch(url, { headers: buildInstagramHeaders() });
     addHistoryEntry({ endpoint: url, method: "GET", statusCode: resp.status, durationMs: Date.now() - start, success: resp.ok, label: `User Stories: ${userId}` });
 
     if (!resp.ok) return { userId, items: [], error: `HTTP ${resp.status}` };
@@ -265,7 +280,7 @@ export async function markStorySeen(payload: {
   });
 
   try {
-    const resp = await fetch(url, { method: "POST", headers, body: body.toString() });
+    const resp = await igFetch(url, { method: "POST", headers, body: body.toString() });
     addHistoryEntry({ endpoint: url, method: "POST", statusCode: resp.status, durationMs: Date.now() - start, success: resp.ok, label: "Mark Story Seen" });
     return { success: resp.ok };
   } catch (err) {

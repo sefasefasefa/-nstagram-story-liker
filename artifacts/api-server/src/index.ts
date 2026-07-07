@@ -1,5 +1,6 @@
 import app from "./app";
 import { logger } from "./lib/logger";
+import { initAutoSession } from "./lib/auto-session.js";
 
 const rawPort = process.env["PORT"];
 
@@ -22,4 +23,7 @@ app.listen(port, (err) => {
   }
 
   logger.info({ port }, "Server listening");
+
+  // Auto-login with saved credentials (non-blocking)
+  initAutoSession().catch((e) => logger.warn({ err: e }, "Auto-session init failed"));
 });

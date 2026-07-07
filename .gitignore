@@ -3,6 +3,9 @@
 # compiled output
 dist
 tmp
+
+# encrypted credential store (personal dev tool)
+.credentials.json
 out-tsc
 *.tsbuildinfo
 .expo

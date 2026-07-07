@@ -1,5 +1,6 @@
 import { buildInstagramHeaders } from "./session.js";
 import { addHistoryEntry } from "./history.js";
+import { attemptAutoRefresh } from "./auto-session.js";
 
 const IG_API_BASE = "https://i.instagram.com";
 const IG_WEB_BASE = "https://www.instagram.com";
@@ -32,11 +33,21 @@ async function proxyRequest(
   let error: string | undefined;
 
   try {
-    const resp = await fetch(url, {
+    let resp = await fetch(url, {
       method,
       headers,
       body: options?.body,
     });
+
+    // 401 → try to refresh session and retry once
+    if (resp.status === 401) {
+      const refreshed = await attemptAutoRefresh();
+      if (refreshed) {
+        const freshHeaders = { ...buildInstagramHeaders(), ...(options?.extraHeaders ?? {}) };
+        resp = await fetch(url, { method, headers: freshHeaders, body: options?.body });
+      }
+    }
+
     statusCode = resp.status;
     success = resp.ok;
     const text = await resp.text();
