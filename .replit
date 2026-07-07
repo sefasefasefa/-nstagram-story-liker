@@ -8,6 +8,7 @@ args = ["pnpm", "store", "prune"]
 env = { "CI" = "true" }
 
 [workflows]
+runButton = "Project"
 
 [agent]
 stack = "PNPM_WORKSPACE"

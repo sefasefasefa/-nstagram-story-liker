@@ -16,8 +16,12 @@ router.post("/auth/login", async (req, res) => {
   }
   const result = await instagramLogin(username, password);
   if (result.success) {
-    // Persist credentials for auto-refresh
-    saveCredentials(username, password);
+    // Persist credentials for auto-refresh (best-effort — skipped if SESSION_SECRET is absent)
+    try {
+      saveCredentials(username, password);
+    } catch (e) {
+      // SESSION_SECRET not configured; credential persistence disabled for this session
+    }
   }
   // Always return 200 so the frontend receives the full JSON body.
   // Failed logins are indicated by result.success === false, not by HTTP status.
