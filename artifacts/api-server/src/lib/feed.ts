@@ -2,9 +2,32 @@ import { buildInstagramHeaders, getSession } from "./session.js";
 import { addHistoryEntry } from "./history.js";
 import { attemptAutoRefresh } from "./auto-session.js";
 
-/** Fetch with automatic 401 → re-login → retry logic. */
+/**
+ * Returns true when a response is an HTML page (Instagram login/checkpoint
+ * redirect) masquerading as a success response.
+ */
+function isHtmlRedirect(resp: Response): boolean {
+  const ct = resp.headers.get("content-type") ?? "";
+  return ct.includes("text/html");
+}
+
+/** A synthetic 401 JSON response used when Instagram returns an HTML redirect. */
+function htmlRedirectResponse(): Response {
+  return new Response(
+    JSON.stringify({ error: "Instagram returned a login redirect — session may need refresh" }),
+    { status: 401, headers: { "content-type": "application/json" } }
+  );
+}
+
+/** Fetch with automatic 401 → token-refresh → retry logic.
+ *  Also converts "200 OK + HTML" responses (Instagram checkpoint pages)
+ *  into a proper 401 so callers can handle them uniformly. */
 async function igFetch(url: string, init: RequestInit): Promise<Response> {
   let resp = await fetch(url, init);
+
+  // Treat HTML redirects the same as 401s
+  if (resp.ok && isHtmlRedirect(resp)) resp = htmlRedirectResponse();
+
   if (resp.status === 401) {
     const ok = await attemptAutoRefresh();
     if (ok) {
@@ -14,13 +37,15 @@ async function igFetch(url: string, init: RequestInit): Promise<Response> {
       const freshHeaders = buildInstagramHeaders();
       // Preserve any non-auth request-specific headers (Content-Type, etc.)
       // but let session headers win.
-      const overrides = init.headers as Record<string, string> | undefined ?? {};
+      const overrides = (init.headers as Record<string, string> | undefined) ?? {};
       const merged: Record<string, string> = {};
       for (const [k, v] of Object.entries(overrides)) {
         const lower = k.toLowerCase();
         if (lower !== "cookie" && lower !== "x-csrftoken") merged[k] = v;
       }
       resp = await fetch(url, { ...init, headers: { ...merged, ...freshHeaders } });
+      // Check again — retried request might also get a checkpoint page
+      if (resp.ok && isHtmlRedirect(resp)) resp = htmlRedirectResponse();
     }
   }
   return resp;

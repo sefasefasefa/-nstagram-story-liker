@@ -15,9 +15,10 @@ import type { GraphQLInput } from "@workspace/api-zod";
 const router = Router();
 
 function proxyStatus(statusCode: number): number {
-  // Propagate upstream 4xx/5xx; fall back to 502 for network errors (statusCode === 0)
+  // Always return 200 for upstream responses so the frontend receives the full
+  // JSON payload (with success/error fields) rather than a raw HTTP error.
+  // The only exception is a total network failure (statusCode === 0) → 502.
   if (statusCode === 0) return 502;
-  if (statusCode >= 400) return statusCode;
   return 200;
 }
 
