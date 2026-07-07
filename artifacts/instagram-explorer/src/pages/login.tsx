@@ -82,10 +82,14 @@ function CheckpointVerify({
     try {
       const r = await fetch('/api/auth/checkpoint/request-code', { method: 'POST' });
       const data = await r.json();
-      setRequested(true);
-      if (data.method) setCurrentInfo({ method: data.method, contact: data.contact ?? null });
+      if (data.success === false) {
+        setError(data.error ?? 'Instagram doğrulama kodu göndermedi.');
+      } else {
+        setRequested(true);
+        if (data.method) setCurrentInfo({ method: data.method, contact: data.contact ?? null });
+      }
     } catch {
-      setError('Kod gönderilemedi. Lütfen tekrar dene.');
+      setError('Bağlantı hatası. Lütfen tekrar dene.');
     } finally {
       setRequesting(false);
     }

@@ -82,7 +82,6 @@ async function mobileHeaders(state: CheckpointState): Promise<Record<string, str
     "X-IG-App-ID":     "567067343352427",
     "X-CSRFToken":     state.csrfToken,
     "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate",
     Cookie:            cookieStrFrom(state.cookies),
   };
 }
@@ -107,7 +106,9 @@ async function startMobileChallenge(state: CheckpointState): Promise<StartChalle
   try {
     const r = await fetch(infoUrl, { headers: hdrs });
     absorb(state, r.headers);
-    const data = await r.json() as any;
+    const rawText = await r.text();
+    logger.info({ status: r.status, body: rawText.slice(0, 400) }, "checkpoint: mobile GET raw");
+    const data = JSON.parse(rawText) as any;
     logger.info({ stepName: data.step_name, phone: data.phone_number, email: data.email }, "checkpoint: mobile GET");
 
     if (data.phone_number) { method = "sms";   contact = data.phone_number; }
@@ -144,7 +145,9 @@ async function startMobileChallenge(state: CheckpointState): Promise<StartChalle
       body,
     });
     absorb(state, r.headers);
-    const data = await r.json() as any;
+    const rawText = await r.text();
+    logger.info({ status: r.status, body: rawText.slice(0, 400) }, "checkpoint: mobile choice POST raw");
+    const data = JSON.parse(rawText) as any;
     logger.info({ stepName: data.step_name, status: r.status }, "checkpoint: mobile choice POST");
 
     if (data.step_name === "verify_code" || r.ok) {
