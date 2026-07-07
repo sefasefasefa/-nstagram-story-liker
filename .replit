@@ -21,5 +21,9 @@ timeoutMs = 20000
 channel = "stable-25_05"
 
 [[ports]]
+localPort = 8080
+externalPort = 8080
+
+[[ports]]
 localPort = 18900
 externalPort = 80
