@@ -4,7 +4,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useLogin, useGetCurrentUser, getGetCurrentUserQueryKey } from '@workspace/api-client-react';
-import { Loader2, RefreshCw, ShieldCheck, AlertTriangle, ExternalLink, KeyRound } from 'lucide-react';
+import { Loader2, RefreshCw, ShieldCheck, AlertTriangle, ExternalLink, KeyRound, Shield, ArrowRight, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Form, FormControl, FormField, FormItem, FormMessage } from '@/components/ui/form';
@@ -47,12 +47,78 @@ function useAutoStatus() {
   return status;
 }
 
+// Checkpoint step-by-step guide
+function CheckpointGuide({ onBack }: { onBack: () => void }) {
+  const [_, setLocation] = useLocation();
+  const steps = [
+    { n: 1, text: 'Instagram.com\'u tarayıcında aç ve hesabına giriş yap.' },
+    { n: 2, text: 'Instagram kimliğini doğrulamanı isterse adımları tamamla (SMS, e-posta vb.).' },
+    { n: 3, text: 'Başarıyla giriş yaptıktan sonra aşağıdaki Oturum Yöneticisi\'ne git ve çerezlerini yapıştır.' },
+  ];
+
+  return (
+    <div className="w-full max-w-sm space-y-4">
+      <Card className="p-6 border-orange-500/30 bg-orange-500/5 shadow-xl space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-full bg-orange-500/10">
+            <Shield className="w-5 h-5 text-orange-400" />
+          </div>
+          <div>
+            <h2 className="font-semibold text-foreground text-sm">Instagram doğrulaması gerekiyor</h2>
+            <p className="text-xs text-muted-foreground">Hesabın bu işlemi doğrulamanı istiyor</p>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          {steps.map(({ n, text }) => (
+            <div key={n} className="flex gap-3 items-start">
+              <span className="shrink-0 w-5 h-5 rounded-full bg-orange-500/20 text-orange-400 text-[11px] font-bold flex items-center justify-center mt-0.5">
+                {n}
+              </span>
+              <p className="text-xs text-muted-foreground leading-relaxed">{text}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="space-y-2 pt-1">
+          <Button
+            className="w-full gap-2 bg-primary hover:bg-primary/90 text-white font-semibold h-9"
+            onClick={() => setLocation('/session')}
+          >
+            <KeyRound className="w-4 h-4" />
+            Oturum Yöneticisi'ne git
+            <ArrowRight className="w-4 h-4 ml-auto" />
+          </Button>
+          <Button
+            variant="ghost"
+            className="w-full text-xs text-muted-foreground hover:text-foreground h-8"
+            onClick={onBack}
+          >
+            Geri dön
+          </Button>
+        </div>
+      </Card>
+
+      <div className="rounded-lg border border-border/50 bg-card/30 px-4 py-3 space-y-1.5">
+        <p className="text-[11px] font-semibold text-foreground flex items-center gap-1.5">
+          <CheckCircle2 className="w-3.5 h-3.5 text-green-400" /> Neden bu oluyor?
+        </p>
+        <p className="text-[11px] text-muted-foreground leading-relaxed">
+          Instagram bu sunucunun IP adresinden giriş yapılmasını engelledi. Kendi tarayıcında doğrulama yapıp
+          çerezleri buraya yapıştırarak oturumunu aktarabilirsin.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export default function Login() {
   const [_, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const { data: user, isLoading: isUserLoading } = useGetCurrentUser({ query: { queryKey: getGetCurrentUserQueryKey() } });
   const loginMutation = useLogin();
   const autoStatus = useAutoStatus();
+  const [showCheckpoint, setShowCheckpoint] = useState(false);
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
@@ -72,6 +138,8 @@ export default function Login() {
       if (result.success) {
         queryClient.invalidateQueries({ queryKey: getGetCurrentUserQueryKey() });
         setLocation('/');
+      } else if (result.errorType === 'checkpoint') {
+        setShowCheckpoint(true);
       } else {
         form.setError('root', { message: result.error || 'Giriş başarısız' });
       }
@@ -84,6 +152,14 @@ export default function Login() {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (showCheckpoint) {
+    return (
+      <div className="min-h-screen w-full flex items-center justify-center p-4 bg-background animate-in fade-in duration-300">
+        <CheckpointGuide onBack={() => setShowCheckpoint(false)} />
       </div>
     );
   }
@@ -168,10 +244,11 @@ export default function Login() {
                   <div className="rounded-lg border border-yellow-500/40 bg-yellow-500/10 px-4 py-3 space-y-2">
                     <div className="flex items-center gap-2 text-yellow-400 font-semibold text-sm">
                       <AlertTriangle className="w-4 h-4 shrink-0" />
-                      Instagram is blocking this server's IP
+                      Instagram sunucu IP'sini engelliyor
                     </div>
                     <p className="text-xs text-muted-foreground leading-relaxed">
-                      Both login paths were blocked. Use the <strong className="text-foreground">Session Manager</strong> to paste cookies directly from your browser instead.
+                      Her iki giriş yolu da engellendi. Bunun yerine tarayıcından çerezleri doğrudan{' '}
+                      <strong className="text-foreground">Oturum Yöneticisi</strong> ile yapıştır.
                     </p>
                     <Button
                       type="button"
@@ -181,7 +258,7 @@ export default function Login() {
                       onClick={() => setLocation('/session')}
                     >
                       <KeyRound className="w-3 h-3" />
-                      Open Session Manager
+                      Oturum Yöneticisi'ni aç
                     </Button>
                   </div>
                 ) : (
@@ -203,7 +280,6 @@ export default function Login() {
                 )}
               </Button>
 
-              {/* Otomatik yönetim notu */}
               <div className="pt-2 flex items-start gap-2 text-[11px] text-muted-foreground bg-muted/20 rounded-lg px-3 py-2">
                 <RefreshCw className="w-3 h-3 mt-0.5 shrink-0 text-primary/60" />
                 <span>

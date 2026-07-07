@@ -115,3 +115,8 @@
 .ig-gray-ring {
   background: hsl(var(--border));
 }
+
+/* Safe-area utility for mobile notch/home-bar */
+.pb-safe {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+}
