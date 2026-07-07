@@ -7,29 +7,35 @@ import NotFound from '@/pages/not-found';
 import { AppLayout } from '@/components/layout/app-layout';
 
 // Pages
-import Dashboard from '@/pages/dashboard';
+import Login from '@/pages/login';
+import HomeFeed from '@/pages/home';
 import ProfileExplorer from '@/pages/profile';
 import PostInspector from '@/pages/post';
 import GraphQLBuilder from '@/pages/graphql';
 import HashtagExplorer from '@/pages/hashtag';
-import StoriesTray from '@/pages/stories';
+import StoriesViewer from '@/pages/stories-viewer';
 import SessionManager from '@/pages/session';
 
 const queryClient = new QueryClient();
 
+import { AuthGuard } from '@/components/auth-guard';
+
 function Router() {
   return (
     <AppLayout>
-      <Switch>
-        <Route path="/" component={Dashboard} />
-        <Route path="/profile" component={ProfileExplorer} />
-        <Route path="/post" component={PostInspector} />
-        <Route path="/graphql" component={GraphQLBuilder} />
-        <Route path="/hashtag" component={HashtagExplorer} />
-        <Route path="/stories" component={StoriesTray} />
-        <Route path="/session" component={SessionManager} />
-        <Route component={NotFound} />
-      </Switch>
+      <AuthGuard>
+        <Switch>
+          <Route path="/login" component={Login} />
+          <Route path="/" component={HomeFeed} />
+          <Route path="/profile" component={ProfileExplorer} />
+          <Route path="/post" component={PostInspector} />
+          <Route path="/graphql" component={GraphQLBuilder} />
+          <Route path="/hashtag" component={HashtagExplorer} />
+          <Route path="/stories" component={StoriesViewer} />
+          <Route path="/session" component={SessionManager} />
+          <Route component={NotFound} />
+        </Switch>
+      </AuthGuard>
     </AppLayout>
   );
 }

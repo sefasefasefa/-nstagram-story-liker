@@ -79,7 +79,8 @@ export default function SessionManager() {
           SESSION_MANAGER
         </h1>
         <p className="text-muted-foreground font-mono text-sm">
-          Inject browser cookies to perform authenticated requests.
+          Inject browser cookies to perform authenticated requests. 
+          <strong className="text-primary ml-1">Note: Logging in via the /login page is preferred.</strong>
         </p>
       </div>
 

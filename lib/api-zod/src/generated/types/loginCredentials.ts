@@ -6,4 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type ApiResponseRequestHeaders = {[key: string]: string};
+export interface LoginCredentials {
+  username: string;
+  password: string;
+}

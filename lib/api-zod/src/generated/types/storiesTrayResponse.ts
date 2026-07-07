@@ -5,5 +5,9 @@
  * Instagram client backend
  * OpenAPI spec version: 0.1.0
  */
+import type { StoryReel } from './storyReel';
 
-export type ApiResponseRequestHeaders = {[key: string]: string};
+export interface StoriesTrayResponse {
+  reels: StoryReel[];
+  error?: string;
+}

@@ -5,8 +5,11 @@
  * Instagram client backend
  * OpenAPI spec version: 0.1.0
  */
-import type { HistoryEntry } from './historyEntry';
 
-export interface HistoryListResponse {
-  entries: HistoryEntry[];
+export interface MiniUser {
+  userId: string;
+  username: string;
+  fullName?: string;
+  profilePicUrl: string;
+  isVerified?: boolean;
 }

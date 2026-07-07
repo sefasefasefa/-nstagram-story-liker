@@ -4,6 +4,9 @@ export interface SessionData {
   username?: string;
   userId?: string;
   dsUserId?: string;
+  fullName?: string;
+  profilePicUrl?: string;
+  isVerified?: boolean;
 }
 
 let currentSession: SessionData | null = null;
@@ -24,9 +27,6 @@ export function isSessionActive(): boolean {
   return currentSession !== null && !!currentSession.sessionId && !!currentSession.csrfToken;
 }
 
-/**
- * Build Instagram request headers from the current session.
- */
 export function buildInstagramHeaders(): Record<string, string> {
   const headers: Record<string, string> = {
     "User-Agent":

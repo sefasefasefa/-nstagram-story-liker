@@ -1,36 +1,40 @@
 import React from 'react';
 import { useLocation } from 'wouter';
-import { ShieldAlert, User, Image, Hash, History, Settings, Zap, Database } from 'lucide-react';
+import { Home, User, Image, Hash, Database, Settings, LogOut } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useGetSession } from '@workspace/api-client-react';
+import { useGetCurrentUser, useLogout, getGetCurrentUserQueryKey } from '@workspace/api-client-react';
+import { useQueryClient } from '@tanstack/react-query';
 
 const NAV_ITEMS = [
-  { path: '/', label: 'Dashboard', icon: Zap },
-  { path: '/profile', label: 'Profile', icon: User },
-  { path: '/post', label: 'Post / Media', icon: Image },
-  { path: '/hashtag', label: 'Hashtag', icon: Hash },
+  { path: '/', label: 'Home', icon: Home },
+  { path: '/profile', label: 'Profile Explorer', icon: User },
+  { path: '/post', label: 'Post Inspector', icon: Image },
+  { path: '/hashtag', label: 'Hashtags', icon: Hash },
   { path: '/graphql', label: 'GraphQL', icon: Database },
-  { path: '/stories', label: 'Stories Tray', icon: History },
   { path: '/session', label: 'Session Status', icon: Settings },
 ];
 
 export function Sidebar() {
   const [location, setLocation] = useLocation();
-  const { data: sessionData } = useGetSession();
+  const queryClient = useQueryClient();
+  const { data: user } = useGetCurrentUser({ query: { queryKey: getGetCurrentUserQueryKey() } });
+  const logoutMutation = useLogout();
+
+  const handleLogout = async () => {
+    await logoutMutation.mutateAsync();
+    queryClient.invalidateQueries({ queryKey: getGetCurrentUserQueryKey() });
+    setLocation('/login');
+  };
 
   return (
     <div className="w-64 border-r border-border bg-sidebar flex flex-col h-full overflow-hidden shrink-0">
-      <div className="p-4 border-b border-border flex items-center gap-3">
-        <div className="h-8 w-8 rounded bg-primary/10 flex items-center justify-center border border-primary/20">
-          <ShieldAlert className="text-primary w-5 h-5" />
-        </div>
-        <div className="flex flex-col">
-          <span className="font-semibold text-sm tracking-tight font-mono text-primary">IG_API_EXPLORER</span>
-          <span className="text-[10px] text-muted-foreground uppercase tracking-widest">Protocol Analyzer</span>
+      <div className="p-6 pb-2">
+        <div className="text-xl font-serif italic tracking-wide text-foreground mb-8">
+          Instagram
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto py-4 px-3 flex flex-col gap-1">
+      <div className="flex-1 overflow-y-auto px-3 flex flex-col gap-2">
         {NAV_ITEMS.map((item) => {
           const isActive = location === item.path || (item.path !== '/' && location.startsWith(item.path));
           return (
@@ -39,35 +43,46 @@ export function Sidebar() {
               data-testid={`nav-${item.label.toLowerCase().replace(/[^a-z0-9]/g, '-')}`}
               onClick={() => setLocation(item.path)}
               className={cn(
-                "flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 text-left",
+                "flex items-center gap-4 px-3 py-3 rounded-lg text-sm font-medium transition-all duration-200 text-left group",
                 isActive 
-                  ? "bg-primary/10 text-primary border border-primary/20 shadow-[0_0_10px_rgba(0,255,255,0.05)]" 
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                  ? "bg-muted text-foreground font-semibold" 
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
               )}
             >
-              <item.icon className={cn("w-4 h-4", isActive ? "text-primary" : "text-muted-foreground")} />
-              {item.label}
+              <item.icon className={cn(
+                "w-6 h-6 transition-transform group-hover:scale-105", 
+                isActive ? "text-foreground" : "text-foreground"
+              )} />
+              <span className={cn(isActive ? "font-bold" : "font-medium text-foreground")}>
+                {item.label}
+              </span>
             </button>
           );
         })}
       </div>
 
-      <div className="p-4 border-t border-border bg-black/20">
-        <div className="flex items-center justify-between text-xs">
-          <span className="text-muted-foreground font-mono">SESSION</span>
-          <div className="flex items-center gap-2">
-            <span className={cn(
-              "w-2 h-2 rounded-full",
-              sessionData?.active ? "bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]" : "bg-destructive shadow-[0_0_8px_rgba(239,68,68,0.6)]"
-            )} />
-            <span className={cn("font-mono font-medium", sessionData?.active ? "text-green-500" : "text-destructive")}>
-              {sessionData?.active ? 'ACTIVE' : 'NONE'}
-            </span>
-          </div>
-        </div>
-        {sessionData?.username && (
-          <div className="mt-2 text-[10px] font-mono text-muted-foreground truncate">
-            usr: {sessionData.username}
+      <div className="p-4 mt-auto">
+        {user?.loggedIn && (
+          <div className="flex items-center justify-between">
+            <button 
+              onClick={() => setLocation(`/profile?username=${user.username}`)}
+              className="flex items-center gap-3 p-2 hover:bg-muted/50 rounded-lg transition-colors flex-1"
+            >
+              <div className="w-8 h-8 rounded-full bg-muted overflow-hidden border border-border">
+                <img src={user.profilePicUrl} alt={user.username} className="w-full h-full object-cover" />
+              </div>
+              <div className="flex flex-col text-left">
+                <span className="text-sm font-semibold text-foreground leading-tight">{user.username}</span>
+                <span className="text-xs text-muted-foreground leading-tight">{user.fullName || 'User'}</span>
+              </div>
+            </button>
+            <button 
+              onClick={handleLogout}
+              className="p-2 text-muted-foreground hover:text-destructive transition-colors rounded-lg hover:bg-destructive/10"
+              title="Logout"
+            >
+              <LogOut className="w-5 h-5" />
+            </button>
           </div>
         )}
       </div>

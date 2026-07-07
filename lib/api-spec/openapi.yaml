@@ -3,15 +3,17 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: Instagram API Explorer backend
+  description: Instagram client backend
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
-  - name: session
-    description: Session management
+  - name: auth
+    description: Instagram authentication
+  - name: feed
+    description: Home feed and timeline
   - name: instagram
     description: Instagram API proxy endpoints
   - name: history
@@ -31,10 +33,167 @@ paths:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
 
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Login to Instagram with username and password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginCredentials"
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResult"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Logout from Instagram
+      responses:
+        "200":
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /auth/me:
+    get:
+      operationId: getCurrentUser
+      tags: [auth]
+      summary: Get current authenticated user info
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentUser"
+
+  /feed/timeline:
+    get:
+      operationId: getTimeline
+      tags: [feed]
+      summary: Get home timeline feed
+      parameters:
+        - name: maxId
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Timeline posts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TimelineResponse"
+
+  /feed/like/{mediaId}:
+    post:
+      operationId: likePost
+      tags: [feed]
+      summary: Like a post
+      parameters:
+        - name: mediaId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Liked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+    delete:
+      operationId: unlikePost
+      tags: [feed]
+      summary: Unlike a post
+      parameters:
+        - name: mediaId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Unliked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /feed/stories/tray:
+    get:
+      operationId: getStoriesTray
+      tags: [feed]
+      summary: Get stories tray (all followed users with active stories)
+      responses:
+        "200":
+          description: Stories tray
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoriesTrayResponse"
+
+  /feed/stories/reel/{userId}:
+    get:
+      operationId: getUserStories
+      tags: [feed]
+      summary: Get individual story items for a user
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: User stories
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserStoriesResponse"
+
+  /feed/stories/seen:
+    post:
+      operationId: markStorySeen
+      tags: [feed]
+      summary: Mark a story as seen
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SeenMutationInput"
+      responses:
+        "200":
+          description: Marked as seen
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
   /session:
     get:
       operationId: getSession
-      tags: [session]
+      tags: [auth]
       summary: Get current session status
       responses:
         "200":
@@ -45,8 +204,8 @@ paths:
                 $ref: "#/components/schemas/SessionStatus"
     post:
       operationId: setSession
-      tags: [session]
-      summary: Set Instagram session cookies
+      tags: [auth]
+      summary: Set Instagram session cookies manually
       requestBody:
         required: true
         content:
@@ -55,14 +214,14 @@ paths:
               $ref: "#/components/schemas/SessionInput"
       responses:
         "200":
-          description: Session set successfully
+          description: Session set
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/SessionStatus"
     delete:
       operationId: clearSession
-      tags: [session]
+      tags: [auth]
       summary: Clear current session
       responses:
         "200":
@@ -120,7 +279,7 @@ paths:
     get:
       operationId: getPost
       tags: [instagram]
-      summary: Get post details by shortcode (PolarisPostRootQuery)
+      summary: Get post details by shortcode
       parameters:
         - name: shortcode
           in: path
@@ -182,7 +341,7 @@ paths:
     get:
       operationId: getStories
       tags: [instagram]
-      summary: Get stories tray (requires session)
+      summary: Get stories tray (raw proxy)
       responses:
         "200":
           description: Stories tray
@@ -291,6 +450,250 @@ components:
           type: string
       required:
         - status
+
+    LoginCredentials:
+      type: object
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+      required:
+        - username
+        - password
+
+    LoginResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+        userId:
+          type: string
+        username:
+          type: string
+        fullName:
+          type: string
+        profilePicUrl:
+          type: string
+        isVerified:
+          type: boolean
+        error:
+          type: string
+        errorType:
+          type: string
+      required:
+        - success
+
+    CurrentUser:
+      type: object
+      properties:
+        loggedIn:
+          type: boolean
+        userId:
+          type: string
+        username:
+          type: string
+        fullName:
+          type: string
+        profilePicUrl:
+          type: string
+        isVerified:
+          type: boolean
+        followerCount:
+          type: integer
+        followingCount:
+          type: integer
+      required:
+        - loggedIn
+
+    TimelineItem:
+      type: object
+      properties:
+        mediaId:
+          type: string
+        shortcode:
+          type: string
+        mediaType:
+          type: integer
+        imageUrl:
+          type: string
+        videoUrl:
+          type: ["string", "null"]
+        caption:
+          type: string
+        likeCount:
+          type: integer
+        commentCount:
+          type: integer
+        hasLiked:
+          type: boolean
+        timestamp:
+          type: integer
+        author:
+          $ref: "#/components/schemas/MiniUser"
+        carouselMedia:
+          type: array
+          items:
+            $ref: "#/components/schemas/CarouselItem"
+      required:
+        - mediaId
+        - shortcode
+        - mediaType
+        - imageUrl
+        - likeCount
+        - commentCount
+        - hasLiked
+        - timestamp
+        - author
+
+    CarouselItem:
+      type: object
+      properties:
+        mediaId:
+          type: string
+        mediaType:
+          type: integer
+        imageUrl:
+          type: string
+        videoUrl:
+          type: ["string", "null"]
+      required:
+        - mediaId
+        - mediaType
+        - imageUrl
+
+    MiniUser:
+      type: object
+      properties:
+        userId:
+          type: string
+        username:
+          type: string
+        fullName:
+          type: string
+        profilePicUrl:
+          type: string
+        isVerified:
+          type: boolean
+      required:
+        - userId
+        - username
+        - profilePicUrl
+
+    TimelineResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/TimelineItem"
+        nextMaxId:
+          type: ["string", "null"]
+        moreAvailable:
+          type: boolean
+        error:
+          type: string
+      required:
+        - items
+        - moreAvailable
+
+    StoryItem:
+      type: object
+      properties:
+        storyId:
+          type: string
+        mediaType:
+          type: integer
+        imageUrl:
+          type: string
+        videoUrl:
+          type: ["string", "null"]
+        expiringAt:
+          type: integer
+        takenAt:
+          type: integer
+        hasLiked:
+          type: boolean
+        viewCount:
+          type: ["integer", "null"]
+      required:
+        - storyId
+        - mediaType
+        - imageUrl
+        - expiringAt
+        - takenAt
+        - hasLiked
+
+    StoryReel:
+      type: object
+      properties:
+        userId:
+          type: string
+        user:
+          $ref: "#/components/schemas/MiniUser"
+        latestReelMedia:
+          type: integer
+        expiringAt:
+          type: integer
+        seen:
+          type: ["integer", "null"]
+        hasBestiesMedia:
+          type: boolean
+      required:
+        - userId
+        - user
+        - latestReelMedia
+        - expiringAt
+        - hasBestiesMedia
+
+    StoriesTrayResponse:
+      type: object
+      properties:
+        reels:
+          type: array
+          items:
+            $ref: "#/components/schemas/StoryReel"
+        error:
+          type: string
+      required:
+        - reels
+
+    UserStoriesResponse:
+      type: object
+      properties:
+        userId:
+          type: string
+        user:
+          $ref: "#/components/schemas/MiniUser"
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/StoryItem"
+        error:
+          type: string
+      required:
+        - userId
+        - items
+
+    SeenMutationInput:
+      type: object
+      properties:
+        reelMediaId:
+          type: string
+        reelId:
+          type: string
+        reelMediaOwnerId:
+          type: string
+        reelMediaTakenAt:
+          type: integer
+        viewSeenAt:
+          type: integer
+      required:
+        - reelMediaId
+        - reelId
+        - reelMediaOwnerId
+        - reelMediaTakenAt
+        - viewSeenAt
 
     SessionStatus:
       type: object
