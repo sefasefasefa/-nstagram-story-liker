@@ -4,7 +4,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useLogin, useGetCurrentUser, getGetCurrentUserQueryKey } from '@workspace/api-client-react';
-import { Loader2, RefreshCw, ShieldCheck } from 'lucide-react';
+import { Loader2, RefreshCw, ShieldCheck, AlertTriangle, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Form, FormControl, FormField, FormItem, FormMessage } from '@/components/ui/form';
@@ -63,6 +63,9 @@ export default function Login() {
     if (user?.loggedIn) setLocation('/');
   }, [user, setLocation]);
 
+  const isIpBlockError = (msg: string) =>
+    msg.includes('IP block') || msg.includes('rate-limit') || msg.includes('public key');
+
   const onSubmit = async (data: LoginFormValues) => {
     try {
       const result = await loginMutation.mutateAsync({ data });
@@ -113,6 +116,25 @@ export default function Login() {
           </Card>
         )}
 
+        {/* Replit IP block notice */}
+        <Card className="px-4 py-3 border-yellow-500/30 bg-yellow-500/5 flex items-start gap-3">
+          <AlertTriangle className="w-4 h-4 mt-0.5 text-yellow-400 shrink-0" />
+          <div className="text-xs space-y-1">
+            <div className="font-semibold text-yellow-400">Running on Replit? Use session cookies instead</div>
+            <div className="text-muted-foreground leading-relaxed">
+              Instagram blocks cloud server IPs on the password login flow.{' '}
+              <button
+                type="button"
+                className="text-yellow-400 underline underline-offset-2 hover:text-yellow-300"
+                onClick={() => setLocation('/session')}
+              >
+                Go to Session Manager
+              </button>{' '}
+              and paste your <code className="text-foreground bg-black/30 px-1 rounded">sessionid</code> + <code className="text-foreground bg-black/30 px-1 rounded">csrftoken</code> cookies from your browser instead.
+            </div>
+          </div>
+        </Card>
+
         <Card className="p-8 border-border bg-card shadow-xl flex flex-col items-center">
           <div className="mb-6 mt-2 text-center space-y-1">
             <h1 className="text-3xl font-serif italic tracking-wide text-foreground">Instagram</h1>
@@ -161,9 +183,31 @@ export default function Login() {
               />
 
               {form.formState.errors.root && (
-                <div className="text-destructive text-sm text-center py-1">
-                  {form.formState.errors.root.message}
-                </div>
+                isIpBlockError(form.formState.errors.root.message ?? '') ? (
+                  <div className="rounded-lg border border-yellow-500/40 bg-yellow-500/10 px-4 py-3 space-y-2">
+                    <div className="flex items-center gap-2 text-yellow-400 font-semibold text-sm">
+                      <AlertTriangle className="w-4 h-4 shrink-0" />
+                      Instagram blocked this server's IP
+                    </div>
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      Username/password login requires fetching Instagram's encryption key, which is blocked on cloud servers. Use <strong className="text-foreground">session cookies</strong> instead — extract them from your browser in 30 seconds.
+                    </p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="w-full border-yellow-500/50 text-yellow-400 hover:bg-yellow-500/10 gap-2 text-xs"
+                      onClick={() => setLocation('/session')}
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                      Go to Session Manager → paste cookies
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="text-destructive text-sm text-center py-1">
+                    {form.formState.errors.root.message}
+                  </div>
+                )
               )}
 
               <Button
