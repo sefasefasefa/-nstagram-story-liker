@@ -7,15 +7,42 @@ const IG_API_BASE = "https://i.instagram.com";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
+const CHROME_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36";
+
+/** Shared browser-like headers for all Instagram web requests. */
+function browserHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  return {
+    "User-Agent": CHROME_UA,
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "sec-ch-ua": '"Google Chrome";v="125", "Chromium";v="125", "Not.A/Brand";v="24"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"Windows"',
+    "Sec-Fetch-Site": "same-origin",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Dest": "empty",
+    ...extra,
+  };
+}
+
+/** Collapse a rawSetCookie array into a single Cookie: header value. */
+function cookieStringFrom(rawSetCookie: string[]): string {
+  return rawSetCookie.map((c) => c.split(";")[0]).join("; ");
+}
+
 /**
- * Fetch a fresh CSRF token and any initial cookies from the Instagram home page.
+ * Fetch a fresh CSRF token and all initial cookies from the Instagram home page.
+ * Returns the full cookie jar so subsequent steps can present them to Instagram.
  */
-async function fetchInitialCsrf(): Promise<{ csrfToken: string; rawSetCookie: string[] }> {
-  const resp = await fetch(`${IG_WEB_BASE}/`, {
+async function fetchInitialCsrf(): Promise<{ csrfToken: string; rawSetCookie: string[]; cookieStr: string }> {
+  const resp = await fetch(`${IG_WEB_BASE}/accounts/login/`, {
     headers: {
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-      Accept: "text/html,application/xhtml+xml",
+      ...browserHeaders(),
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+      "Sec-Fetch-Mode": "navigate",
+      "Sec-Fetch-Dest": "document",
+      "Sec-Fetch-Site": "none",
+      "Upgrade-Insecure-Requests": "1",
     },
     redirect: "follow",
   });
@@ -25,40 +52,52 @@ async function fetchInitialCsrf(): Promise<{ csrfToken: string; rawSetCookie: st
     if (key.toLowerCase() === "set-cookie") rawSetCookie.push(val);
   });
 
+  const cookieStr = cookieStringFrom(rawSetCookie);
+
+  // Extract CSRF token from cookies first, then fall back to HTML
   let csrfToken = "";
   for (const cookie of rawSetCookie) {
     const m = cookie.match(/csrftoken=([^;]+)/);
     if (m) { csrfToken = m[1]; break; }
   }
-  // Fallback: parse from HTML meta tag
   if (!csrfToken) {
     const html = await resp.text();
     const m = html.match(/"csrf_token":"([^"]+)"/);
     if (m) csrfToken = m[1];
   }
-  return { csrfToken, rawSetCookie };
+  return { csrfToken, rawSetCookie, cookieStr };
 }
 
 /**
  * Fetch Instagram's current public key for password encryption.
- * Returns { publicKey (base64), keyId }.
+ * Requires the full cookie jar from fetchInitialCsrf so Instagram doesn't
+ * reject the request as a bot (missing mid / ig_did cookies).
  */
-async function fetchPublicKey(csrfToken: string): Promise<{ publicKey: string; keyId: number }> {
+async function fetchPublicKey(
+  csrfToken: string,
+  cookieStr: string,
+): Promise<{ publicKey: string; keyId: number }> {
   const resp = await fetch(
     `${IG_WEB_BASE}/api/v1/web/accounts/login/ajax/get_public_key/`,
     {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+      headers: browserHeaders({
+        Accept: "*/*",
         "X-IG-App-ID": "936619743392459",
+        "X-ASBD-ID": "129477",
         "X-CSRFToken": csrfToken,
+        "X-Requested-With": "XMLHttpRequest",
+        "X-Instagram-AJAX": "1009848701",
         Referer: `${IG_WEB_BASE}/accounts/login/`,
-        Cookie: `csrftoken=${csrfToken}`,
-      },
+        Origin: IG_WEB_BASE,
+        Cookie: cookieStr,
+      }),
     }
   );
   if (!resp.ok) {
     const body = await resp.text().catch(() => "");
-    const hint = body.trimStart().startsWith("<") ? "Instagram returned an HTML page (possible rate-limit or block)" : `HTTP ${resp.status}`;
+    const hint = body.trimStart().startsWith("<")
+      ? "Instagram rejected the request (possible IP block or rate-limit on this server)"
+      : `HTTP ${resp.status}`;
     throw new Error(`Could not fetch Instagram public key: ${hint}`);
   }
   const text = await resp.text();
@@ -66,7 +105,7 @@ async function fetchPublicKey(csrfToken: string): Promise<{ publicKey: string; k
   try {
     data = JSON.parse(text);
   } catch {
-    throw new Error("Could not fetch Instagram public key: response was not valid JSON (possible rate-limit or block)");
+    throw new Error("Could not fetch Instagram public key: response was not valid JSON");
   }
   return { publicKey: data.public_key, keyId: parseInt(data.key_id, 10) };
 }
@@ -131,25 +170,21 @@ export async function instagramLogin(
   password: string
 ): Promise<LoginResult> {
   try {
-    // Step 1: get initial CSRF token
-    const { csrfToken, rawSetCookie } = await fetchInitialCsrf();
+    // Step 1: load the login page — captures mid, ig_did, csrftoken, etc.
+    const { csrfToken, cookieStr } = await fetchInitialCsrf();
     if (!csrfToken) {
       return { success: false, error: "Could not fetch CSRF token from Instagram", errorType: "csrf_failed" };
     }
 
-    // Step 2: get encryption public key
-    const { publicKey, keyId } = await fetchPublicKey(csrfToken);
+    // Step 2: get encryption public key — pass the full cookie jar so Instagram
+    //         doesn't flag the request as a bot (missing mid/ig_did cookies)
+    const { publicKey, keyId } = await fetchPublicKey(csrfToken, cookieStr);
 
     // Step 3: encrypt password
     const encryptedPassword = await encryptPassword(password, publicKey, keyId);
 
-    // Step 4: build cookie header from initial response
-    const cookieStr = rawSetCookie
-      .map((c) => c.split(";")[0])
-      .join("; ");
-
-    // Step 5: POST login
-    const body = new URLSearchParams({
+    // Step 4: POST login — same cookie jar + full browser headers
+    const loginBody = new URLSearchParams({
       username,
       enc_password: encryptedPassword,
       queryParams: "{}",
@@ -158,8 +193,7 @@ export async function instagramLogin(
 
     const loginResp = await fetch(`${IG_WEB_BASE}/accounts/login/ajax/`, {
       method: "POST",
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+      headers: browserHeaders({
         "Content-Type": "application/x-www-form-urlencoded",
         "X-IG-App-ID": "936619743392459",
         "X-ASBD-ID": "129477",
@@ -169,8 +203,8 @@ export async function instagramLogin(
         Origin: IG_WEB_BASE,
         Referer: `${IG_WEB_BASE}/accounts/login/`,
         Cookie: cookieStr,
-      },
-      body: body.toString(),
+      }),
+      body: loginBody.toString(),
     });
 
     if (!loginResp.ok && loginResp.status !== 400) {
