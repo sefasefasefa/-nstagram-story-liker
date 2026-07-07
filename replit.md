@@ -4,8 +4,8 @@ A developer tool for security researchers and engineers to inspect and test Inst
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 8080)
-- `pnpm --filter @workspace/instagram-explorer run dev` — run the frontend (port 18900)
+- `PORT=8080 pnpm --filter @workspace/api-server run dev` — run the API server (port 8080)
+- `PORT=5173 BASE_PATH=/ pnpm --filter @workspace/instagram-explorer run dev` — run the frontend (port 5173)
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 
