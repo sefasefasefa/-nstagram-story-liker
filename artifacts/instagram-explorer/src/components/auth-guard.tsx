@@ -7,8 +7,10 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   const [location, setLocation] = useLocation();
   const { data: user, isLoading } = useGetCurrentUser({ query: { queryKey: getGetCurrentUserQueryKey() } });
 
+  const isPublic = location === '/login' || location === '/session';
+
   useEffect(() => {
-    if (!isLoading && user && !user.loggedIn && location !== '/login') {
+    if (!isLoading && user && !user.loggedIn && !isPublic) {
       setLocation('/login');
     }
   }, [user, isLoading, location, setLocation]);
@@ -21,7 +23,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (!user?.loggedIn && location !== '/login') {
+  if (!user?.loggedIn && !isPublic) {
     return null; // Will redirect
   }
 
