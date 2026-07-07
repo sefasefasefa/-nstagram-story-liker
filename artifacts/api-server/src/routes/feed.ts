@@ -7,6 +7,7 @@ import {
   fetchUserStories,
   markStorySeen,
 } from "../lib/feed.js";
+import { startAutoLiker, stopAutoLiker, getStatus } from "../lib/auto-liker.js";
 import type { SeenMutationInput } from "@workspace/api-zod";
 
 const router = Router();
@@ -54,6 +55,22 @@ router.post("/feed/stories/seen", async (req, res) => {
   }
   const result = await markStorySeen(body);
   res.status(result.success ? 200 : 400).json({ success: result.success, message: result.message });
+});
+
+// GET /feed/auto-liker/status
+router.get("/feed/auto-liker/status", (_req, res) => {
+  res.json(getStatus());
+});
+
+// POST /feed/auto-liker/start
+router.post("/feed/auto-liker/start", (req, res) => {
+  const { intervalMs } = req.body as { intervalMs?: number };
+  res.json(startAutoLiker(intervalMs));
+});
+
+// POST /feed/auto-liker/stop
+router.post("/feed/auto-liker/stop", (_req, res) => {
+  res.json(stopAutoLiker());
 });
 
 export default router;

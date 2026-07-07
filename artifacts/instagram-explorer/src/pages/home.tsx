@@ -6,6 +6,7 @@ import { AuthGuard } from '@/components/auth-guard';
 import { StoryTray } from '@/components/feed/story-tray';
 import { PostCard } from '@/components/feed/post-card';
 import { Button } from '@/components/ui/button';
+import { AutoLikerPanel } from '@/components/auto-liker-panel';
 
 export default function HomeFeed() {
   const { data, isLoading, isFetching, fetchNextPage, hasNextPage } = useGetTimeline(undefined, { 
@@ -21,6 +22,7 @@ export default function HomeFeed() {
   return (
     <AuthGuard>
       <div className="max-w-2xl mx-auto w-full pt-4 pb-20 animate-in fade-in duration-500">
+        <AutoLikerPanel />
         <StoryTray />
         
         <div className="space-y-4">
