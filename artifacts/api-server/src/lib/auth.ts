@@ -63,7 +63,9 @@ interface CsrfBootstrap {
   csrfToken: string;
   cookies: string[];
   cookieStr: string;
-  ajaxRev: string; // X-Instagram-AJAX (rollout hash)
+  ajaxRev: string;         // X-Instagram-AJAX (rollout hash)
+  publicKey?: string;      // base64 — embedded in login page HTML
+  publicKeyId?: number;    // key_id — embedded in login page HTML
 }
 
 /**
@@ -75,67 +77,87 @@ interface CsrfBootstrap {
  * All values fall back to safe defaults if the page is blocked so the login
  * attempt can still proceed.
  */
-async function fetchCsrfBootstrap(): Promise<CsrfBootstrap> {
-  let csrfToken = "";
-  let ajaxRev = "1009848701"; // known-good fallback
-  let cookies: string[] = [];
+/**
+ * Try several Instagram URLs to obtain an initial csrftoken cookie.
+ * The /accounts/login/ page is often 429-rate-limited from datacenter IPs;
+ * these alternatives are lighter and less aggressively rate-limited.
+ */
+async function fetchCsrfToken(): Promise<{ csrfToken: string; cookies: string[] }> {
+  const CANDIDATE_URLS = [
+    // Lightweight public pages that set csrftoken without triggering aggressive rate-limits
+    `${IG_WEB_BASE}/`,
+    `${IG_WEB_BASE}/accounts/login/`,
+    `${IG_API_BASE}/api/v1/si/fetch_headers/?challenge_type=signup&guid=${randomUUID().replace(/-/g, "")}`,
+  ];
 
+  for (const url of CANDIDATE_URLS) {
+    try {
+      const resp = await fetch(url, {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+          Accept: "text/html,application/xhtml+xml,*/*;q=0.8",
+          "Accept-Language": "en-US,en;q=0.9",
+          "Accept-Encoding": "gzip, deflate, br",
+          "Sec-Fetch-Mode": "navigate",
+          "Sec-Fetch-Dest": "document",
+          "Sec-Fetch-Site": "none",
+        },
+        redirect: "follow",
+      });
+      const cookies = getSetCookies(resp.headers);
+      for (const c of cookies) {
+        const m = c.match(/csrftoken=([^;]+)/);
+        if (m) {
+          logger.debug({ url, csrfToken: m[1].slice(0, 8) + "…" }, "auth: got CSRF from URL");
+          return { csrfToken: m[1], cookies };
+        }
+      }
+    } catch { /* try next */ }
+  }
+
+  // All sources failed — generate a token and set it ourselves.
+  // Instagram validates that X-CSRFToken == csrftoken cookie, not that the value
+  // is server-issued, so a consistent self-generated pair still passes CSRF checks.
+  const csrfToken = randomBytes(16).toString("hex");
+  logger.debug({ csrfToken: csrfToken.slice(0, 8) + "…" }, "auth: using generated CSRF token");
+  return { csrfToken, cookies: [`csrftoken=${csrfToken}`] };
+}
+
+async function fetchCsrfBootstrap(): Promise<CsrfBootstrap> {
+  const ajaxRev = "1009848701"; // known-good fallback; Instagram accepts slightly stale values
+  let publicKey: string | undefined;
+  let publicKeyId: number | undefined;
+
+  const { csrfToken, cookies } = await fetchCsrfToken();
+
+  // Attempt to extract the public key from the login page HTML (best-effort; often 429).
   try {
     const resp = await fetch(`${IG_WEB_BASE}/accounts/login/`, {
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-        Accept:
-          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        Accept: "text/html,application/xhtml+xml,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Upgrade-Insecure-Requests": "1",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Site": "none",
+        Cookie: `csrftoken=${csrfToken}`,
       },
       redirect: "follow",
     });
-
-    cookies = getSetCookies(resp.headers);
-
-    // Extract csrftoken from cookies first
-    for (const c of cookies) {
-      const m = c.match(/csrftoken=([^;]+)/);
-      if (m) { csrfToken = m[1]; break; }
+    if (resp.ok) {
+      const html = await resp.text();
+      const pkMatch  = html.match(/"public_key"\s*:\s*"([A-Za-z0-9+/=]{20,})"/);
+      const kidMatch = html.match(/"key_id"\s*:\s*"?(\d+)"?/);
+      if (pkMatch)  publicKey   = pkMatch[1];
+      if (kidMatch) publicKeyId = parseInt(kidMatch[1], 10);
     }
+  } catch { /* best-effort — proceed without embedded key */ }
 
-    // Parse HTML for csrftoken and rollout_hash
-    const html = await resp.text();
-
-    if (!csrfToken) {
-      for (const p of [/"csrf_token"\s*:\s*"([^"]+)"/, /csrftoken=([A-Za-z0-9_-]{20,})/]) {
-        const m = html.match(p);
-        if (m) { csrfToken = m[1]; break; }
-      }
-    }
-
-    // rollout_hash lives in the inline JS bundle — multiple known patterns
-    for (const p of [
-      /"rollout_hash"\s*:\s*"([^"]+)"/,
-      /LSD\s*,\s*\[\],\s*\{"token"\s*:\s*"([^"]+)"\}/,
-      /"client_revision"\s*:\s*(\d+)/,
-      /X-Instagram-AJAX['"]\s*:\s*['"]([^'"]+)['"]/,
-    ]) {
-      const m = html.match(p);
-      if (m) { ajaxRev = m[1]; break; }
-    }
-  } catch (err) {
-    logger.debug({ err }, "auth: CSRF bootstrap fetch failed — using fallback values");
-  }
-
-  // Final fallbacks
-  if (!csrfToken) csrfToken = randomBytes(16).toString("hex");
   if (!cookies.some((c) => c.startsWith("csrftoken="))) {
     cookies.push(`csrftoken=${csrfToken}`);
   }
 
-  return { csrfToken, cookies, cookieStr: cookieStringFrom(cookies), ajaxRev };
+  logger.debug({ csrfOk: !!csrfToken, publicKeyFound: !!publicKey }, "auth: bootstrap ready");
+  return { csrfToken, cookies, cookieStr: cookieStringFrom(cookies), ajaxRev, publicKey, publicKeyId };
 }
 
 // ── Path 1: Web endpoint + version-0 password ──────────────────────────────────
@@ -155,9 +177,6 @@ async function loginViaWebV0(username: string, password: string): Promise<LoginR
   // Version 0: plaintext password — no public-key fetch needed
   const encPassword = `#PWD_INSTAGRAM_BROWSER:0:${timestamp}:${password}`;
   const jazoest = computeJazoest(csrfToken);
-
-  // mid cookie is required by Instagram for the login request
-  const mid = cookies.find((c) => c.startsWith("mid="))?.split(";")[0].replace("mid=", "") ?? "";
 
   let resp: Response;
   try {
@@ -182,13 +201,13 @@ async function loginViaWebV0(username: string, password: string): Promise<LoginR
         Referer: `${IG_WEB_BASE}/accounts/login/`,
         Cookie:  cookieStr,
       },
+      // mid belongs only in Cookie header, not the POST body
       body: new URLSearchParams({
         username,
         enc_password:  encPassword,
         queryParams:   JSON.stringify({ next: "/" }),
         optIntoOneTap: "false",
         jazoest,
-        ...(mid ? { mid } : {}),
       }).toString(),
     });
   } catch (err) {
@@ -413,10 +432,20 @@ async function loginViaWebFullEncryption(username: string, password: string): Pr
 
   const { csrfToken, cookieStr, ajaxRev } = bootstrap;
   let publicKey: string, keyId: number;
-  try {
-    ({ publicKey, keyId } = await fetchPublicKey(csrfToken, cookieStr, ajaxRev));
-  } catch (err) {
-    return { success: false, error: String(err), errorType: "ip_block" };
+
+  // Use the public key embedded in the login page HTML if available —
+  // avoids the separate get_public_key endpoint that is blocked on most datacenter IPs.
+  if (bootstrap.publicKey && bootstrap.publicKeyId !== undefined) {
+    publicKey = bootstrap.publicKey;
+    keyId = bootstrap.publicKeyId;
+    logger.info({ keyId, path: "web-full" }, "auth: using embedded public key from login page HTML");
+  } else {
+    // Fall back to dedicated API endpoint
+    try {
+      ({ publicKey, keyId } = await fetchPublicKey(csrfToken, cookieStr, ajaxRev));
+    } catch (err) {
+      return { success: false, error: String(err), errorType: "ip_block" };
+    }
   }
 
   const encPassword = await encryptPassword(password, publicKey, keyId);
@@ -439,7 +468,13 @@ async function loginViaWebFullEncryption(username: string, password: string): Pr
         Referer: `${IG_WEB_BASE}/accounts/login/`,
         Cookie:  cookieStr,
       },
-      body: new URLSearchParams({ username, enc_password: encPassword, queryParams: "{}", optIntoOneTap: "false" }).toString(),
+      body: new URLSearchParams({
+        username,
+        enc_password:  encPassword,
+        queryParams:   JSON.stringify({ next: "/" }),
+        optIntoOneTap: "false",
+        jazoest:       computeJazoest(csrfToken),
+      }).toString(),
     });
   } catch (err) {
     return { success: false, error: `Network error: ${String(err)}`, errorType: "network" };
@@ -506,19 +541,19 @@ async function finalizeSession(params: { sessionId: string; csrfToken: string; u
  * actually responded (regardless of success/failure).  Only advances to the next
  * path on a pure network error (couldn't reach Instagram at all).
  */
-/** Error types that indicate a server-side format rejection — worth trying the next path. */
-const FORMAT_ERRORS = new Set(["network", "parse_error", "RuntimeException", "ip_block"]);
-
 export async function instagramLogin(username: string, password: string): Promise<LoginResult> {
-  // Path 1 — web V0 (no public key needed)
+  // Path 1 — web V0 (no public key needed; skips the blocked get_public_key endpoint)
   const r1 = await loginViaWebV0(username, password);
-  if (!FORMAT_ERRORS.has(r1.errorType ?? "")) return r1;
+  // Only escalate on pure network failures — if Instagram responded (any JSON), use it.
+  // RuntimeException signals a server-side request-format issue, not a bad credential,
+  // so we also escalate on that to give Path 2 a chance.
+  if (r1.errorType !== "network" && r1.errorType !== "RuntimeException") return r1;
 
-  // Path 2 — mobile V0
+  // Path 2 — mobile V0 (different endpoint and UA)
   const r2 = await loginViaMobileApi(username, password);
-  if (!FORMAT_ERRORS.has(r2.errorType ?? "")) return r2;
+  if (r2.errorType !== "network") return r2;
 
-  // Path 3 — web full encryption (last resort, needs public key)
+  // Path 3 — web full encryption (last resort; requires public key from HTML or API)
   return loginViaWebFullEncryption(username, password);
 }
 
