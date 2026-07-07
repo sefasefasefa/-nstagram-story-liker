@@ -31,40 +31,87 @@ function cookieStringFrom(rawSetCookie: string[]): string {
 }
 
 /**
- * Fetch a fresh CSRF token and all initial cookies from the Instagram home page.
- * Returns the full cookie jar so subsequent steps can present them to Instagram.
+ * Reliably extract all Set-Cookie header values from a fetch Response.
+ * Node.js undici (used by Node 18+) exposes headers.getSetCookie() which
+ * returns each Set-Cookie as a separate string. Fall back to forEach() for
+ * environments that don't have that method yet.
+ */
+function getSetCookies(headers: Headers): string[] {
+  if (typeof (headers as any).getSetCookie === "function") {
+    return (headers as any).getSetCookie() as string[];
+  }
+  // Fallback for older runtimes: forEach may merge values — still better than nothing
+  const result: string[] = [];
+  headers.forEach((val, key) => {
+    if (key.toLowerCase() === "set-cookie") {
+      // undici sometimes joins multiple Set-Cookie with ", " — split conservatively
+      result.push(...val.split(/,\s*(?=[A-Za-z0-9_-]+=)/));
+    }
+  });
+  return result;
+}
+
+/**
+ * Fetch a fresh CSRF token and all initial cookies from the Instagram login page.
+ * Falls back to a randomly-generated CSRF token if Instagram blocks the page load —
+ * the public-key and login endpoints only require that X-CSRFToken == csrftoken cookie;
+ * they do NOT validate the value against server-side session state.
  */
 async function fetchInitialCsrf(): Promise<{ csrfToken: string; rawSetCookie: string[]; cookieStr: string }> {
-  const resp = await fetch(`${IG_WEB_BASE}/accounts/login/`, {
-    headers: {
-      ...browserHeaders(),
-      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-      "Sec-Fetch-Mode": "navigate",
-      "Sec-Fetch-Dest": "document",
-      "Sec-Fetch-Site": "none",
-      "Upgrade-Insecure-Requests": "1",
-    },
-    redirect: "follow",
-  });
+  let rawSetCookie: string[] = [];
+  let csrfToken = "";
 
-  const rawSetCookie: string[] = [];
-  resp.headers.forEach((val, key) => {
-    if (key.toLowerCase() === "set-cookie") rawSetCookie.push(val);
-  });
+  try {
+    const resp = await fetch(`${IG_WEB_BASE}/accounts/login/`, {
+      headers: {
+        ...browserHeaders(),
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Site": "none",
+        "Upgrade-Insecure-Requests": "1",
+      },
+      redirect: "follow",
+    });
+
+    rawSetCookie.push(...getSetCookies(resp.headers));
+
+    // Try cookie first, then HTML
+    for (const cookie of rawSetCookie) {
+      const m = cookie.match(/csrftoken=([^;]+)/);
+      if (m) { csrfToken = m[1]; break; }
+    }
+    if (!csrfToken) {
+      const html = await resp.text();
+      // Multiple known patterns Instagram uses
+      const patterns = [
+        /"csrf_token":"([^"]+)"/,
+        /csrftoken=([A-Za-z0-9_-]{20,})/,
+        /"token":"([A-Za-z0-9_-]{20,})"/,
+      ];
+      for (const p of patterns) {
+        const m = html.match(p);
+        if (m) { csrfToken = m[1]; break; }
+      }
+    }
+  } catch {
+    // Network error fetching the page — fall through to random token
+  }
+
+  // Last resort: generate a random CSRF token.
+  // Instagram validates that X-CSRFToken header === csrftoken cookie value,
+  // but does not check the value against any server-side session.
+  if (!csrfToken) {
+    csrfToken = randomBytes(16).toString("hex");
+  }
+
+  // Ensure our csrftoken cookie is in the jar (may already be there from Set-Cookie)
+  const hasCsrfCookie = rawSetCookie.some((c) => c.startsWith("csrftoken="));
+  if (!hasCsrfCookie) {
+    rawSetCookie.push(`csrftoken=${csrfToken}`);
+  }
 
   const cookieStr = cookieStringFrom(rawSetCookie);
-
-  // Extract CSRF token from cookies first, then fall back to HTML
-  let csrfToken = "";
-  for (const cookie of rawSetCookie) {
-    const m = cookie.match(/csrftoken=([^;]+)/);
-    if (m) { csrfToken = m[1]; break; }
-  }
-  if (!csrfToken) {
-    const html = await resp.text();
-    const m = html.match(/"csrf_token":"([^"]+)"/);
-    if (m) csrfToken = m[1];
-  }
   return { csrfToken, rawSetCookie, cookieStr };
 }
 
