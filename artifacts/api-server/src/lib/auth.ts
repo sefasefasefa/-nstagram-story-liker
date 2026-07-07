@@ -140,11 +140,24 @@ async function fetchCsrfBootstrap(): Promise<CsrfBootstrap> {
 
 // ── Path 1: Web endpoint + version-0 password ──────────────────────────────────
 
+/**
+ * jazoest is a checksum Instagram uses to verify the CSRF token hasn't been tampered with.
+ * Formula: "2" + sum_of_ascii_values_of_csrf_token
+ */
+function computeJazoest(csrfToken: string): string {
+  const sum = csrfToken.split("").reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+  return "2" + sum;
+}
+
 async function loginViaWebV0(username: string, password: string): Promise<LoginResult> {
-  const { csrfToken, cookieStr, ajaxRev } = await fetchCsrfBootstrap();
+  const { csrfToken, cookies, cookieStr, ajaxRev } = await fetchCsrfBootstrap();
   const timestamp = Math.floor(Date.now() / 1000);
-  // Version 0: password carried in plaintext inside the envelope — no public-key fetch needed
+  // Version 0: plaintext password — no public-key fetch needed
   const encPassword = `#PWD_INSTAGRAM_BROWSER:0:${timestamp}:${password}`;
+  const jazoest = computeJazoest(csrfToken);
+
+  // mid cookie is required by Instagram for the login request
+  const mid = cookies.find((c) => c.startsWith("mid="))?.split(";")[0].replace("mid=", "") ?? "";
 
   let resp: Response;
   try {
@@ -153,7 +166,7 @@ async function loginViaWebV0(username: string, password: string): Promise<LoginR
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-        "Content-Type": "application/x-www-form-urlencoded",
+        "Content-Type":     "application/x-www-form-urlencoded",
         "X-IG-App-ID":      "936619743392459",
         "X-ASBD-ID":        "198387",
         "X-CSRFToken":      csrfToken,
@@ -165,15 +178,17 @@ async function loginViaWebV0(username: string, password: string): Promise<LoginR
         "Sec-Fetch-Site":   "same-origin",
         "Sec-Fetch-Mode":   "cors",
         "Sec-Fetch-Dest":   "empty",
-        Origin:   IG_WEB_BASE,
-        Referer:  `${IG_WEB_BASE}/accounts/login/`,
-        Cookie:   cookieStr,
+        Origin:  IG_WEB_BASE,
+        Referer: `${IG_WEB_BASE}/accounts/login/`,
+        Cookie:  cookieStr,
       },
       body: new URLSearchParams({
         username,
         enc_password:  encPassword,
-        queryParams:   "{}",
+        queryParams:   JSON.stringify({ next: "/" }),
         optIntoOneTap: "false",
+        jazoest,
+        ...(mid ? { mid } : {}),
       }).toString(),
     });
   } catch (err) {
@@ -491,16 +506,19 @@ async function finalizeSession(params: { sessionId: string; csrfToken: string; u
  * actually responded (regardless of success/failure).  Only advances to the next
  * path on a pure network error (couldn't reach Instagram at all).
  */
+/** Error types that indicate a server-side format rejection — worth trying the next path. */
+const FORMAT_ERRORS = new Set(["network", "parse_error", "RuntimeException", "ip_block"]);
+
 export async function instagramLogin(username: string, password: string): Promise<LoginResult> {
   // Path 1 — web V0 (no public key needed)
   const r1 = await loginViaWebV0(username, password);
-  if (r1.errorType !== "network") return r1;
+  if (!FORMAT_ERRORS.has(r1.errorType ?? "")) return r1;
 
   // Path 2 — mobile V0
   const r2 = await loginViaMobileApi(username, password);
-  if (r2.errorType !== "network") return r2;
+  if (!FORMAT_ERRORS.has(r2.errorType ?? "")) return r2;
 
-  // Path 3 — web full encryption (last resort)
+  // Path 3 — web full encryption (last resort, needs public key)
   return loginViaWebFullEncryption(username, password);
 }
 
