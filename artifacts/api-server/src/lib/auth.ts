@@ -21,6 +21,9 @@ import { createCipheriv, randomBytes, randomUUID } from "crypto";
 import _sodium from "libsodium-wrappers";
 import { setSession, clearSession, getSession, buildInstagramHeaders } from "./session.js";
 import { logger } from "./logger.js";
+import { setPendingCheckpoint } from "./checkpoint.js";
+import { finalizeSession } from "./auth-shared.js";
+import type { LoginResult } from "./auth-types.js";
 
 const IG_WEB_BASE = "https://www.instagram.com";
 const IG_API_BASE = "https://i.instagram.com";
@@ -44,18 +47,7 @@ function getSetCookies(headers: Headers): string[] {
   return result;
 }
 
-// ── Public result type ─────────────────────────────────────────────────────────
-
-export interface LoginResult {
-  success: boolean;
-  userId?: string;
-  username?: string;
-  fullName?: string;
-  profilePicUrl?: string;
-  isVerified?: boolean;
-  error?: string;
-  errorType?: string;
-}
+export type { LoginResult } from "./auth-types.js";
 
 // ── CSRF + rollout_hash bootstrap ──────────────────────────────────────────────
 
@@ -232,8 +224,21 @@ async function loginViaWebV0(username: string, password: string): Promise<LoginR
   try { data = JSON.parse(text); }
   catch { return { success: false, error: `Response was not JSON: ${text.slice(0, 200)}`, errorType: "parse_error" }; }
 
+  // Extract session cookies early — needed for checkpoint state
+  const loginCookies = getSetCookies(resp.headers);
+  let sessionId = "", newCsrfToken = csrfToken, dsUserId = data.userId ?? "";
+
   if (data.checkpoint_url) {
-    return { success: false, error: "Checkpoint required — verify your account in a browser first.", errorType: "checkpoint" };
+    for (const c of loginCookies) {
+      const csrf = c.match(/csrftoken=([^;]+)/); if (csrf) newCsrfToken = csrf[1];
+    }
+    setPendingCheckpoint({
+      checkpointUrl: data.checkpoint_url,
+      cookies: [...cookies, ...loginCookies],
+      csrfToken: newCsrfToken,
+      username,
+    });
+    return { success: false, error: "Doğrulama gerekiyor", errorType: "checkpoint" };
   }
   if (data.two_factor_required) {
     return { success: false, error: "Two-factor authentication required. Disable 2FA or use Session Manager to paste cookies.", errorType: "two_factor" };
@@ -241,10 +246,6 @@ async function loginViaWebV0(username: string, password: string): Promise<LoginR
   if (!data.authenticated) {
     return { success: false, error: data.message ?? "Invalid username or password", errorType: data.error_type ?? "bad_password" };
   }
-
-  // Extract session cookies
-  const loginCookies = getSetCookies(resp.headers);
-  let sessionId = "", newCsrfToken = csrfToken, dsUserId = data.userId ?? "";
   for (const c of loginCookies) {
     const sid  = c.match(/sessionid=([^;]+)/);  if (sid)  sessionId    = sid[1];
     const csrf = c.match(/csrftoken=([^;]+)/);  if (csrf) newCsrfToken = csrf[1];
@@ -346,8 +347,21 @@ async function loginViaMobileApi(username: string, password: string): Promise<Lo
   try { data = JSON.parse(text); }
   catch { return { success: false, error: `Response was not JSON: ${text.slice(0, 200)}`, errorType: "parse_error" }; }
 
+  const loginCookies = getSetCookies(resp.headers);
+  let sessionId = "", newCsrfToken = csrfToken;
+  const userId = String(data.logged_in_user?.pk ?? "");
+
   if (data.checkpoint_url) {
-    return { success: false, error: "Checkpoint required — verify your account in a browser first.", errorType: "checkpoint" };
+    for (const c of loginCookies) {
+      const csrf = c.match(/csrftoken=([^;]+)/); if (csrf) newCsrfToken = csrf[1];
+    }
+    setPendingCheckpoint({
+      checkpointUrl: data.checkpoint_url,
+      cookies: [...initCookies, ...loginCookies],
+      csrfToken: newCsrfToken,
+      username,
+    });
+    return { success: false, error: "Doğrulama gerekiyor", errorType: "checkpoint" };
   }
   if (data.two_factor_required) {
     return { success: false, error: "Two-factor authentication required. Disable 2FA or use Session Manager.", errorType: "two_factor" };
@@ -355,10 +369,6 @@ async function loginViaMobileApi(username: string, password: string): Promise<Lo
   if (!data.logged_in_user || data.status !== "ok") {
     return { success: false, error: data.message ?? data.error_type ?? `HTTP ${resp.status}`, errorType: data.error_type ?? "bad_password" };
   }
-
-  const loginCookies = getSetCookies(resp.headers);
-  let sessionId = "", newCsrfToken = csrfToken;
-  const userId = String(data.logged_in_user.pk ?? "");
   for (const c of loginCookies) {
     const sid  = c.match(/sessionid=([^;]+)/);  if (sid)  sessionId    = sid[1];
     const csrf = c.match(/csrftoken=([^;]+)/);  if (csrf) newCsrfToken = csrf[1];
@@ -491,12 +501,24 @@ async function loginViaWebFullEncryption(username: string, password: string): Pr
   try { data = JSON.parse(text); }
   catch { return { success: false, error: `Response was not JSON`, errorType: "parse_error" }; }
 
-  if (data.checkpoint_url) return { success: false, error: "Checkpoint required.", errorType: "checkpoint" };
+  const loginCookies = getSetCookies(resp.headers);
+  let sessionId = "", newCsrfToken = csrfToken, dsUserId = data.userId ?? "";
+
+  if (data.checkpoint_url) {
+    for (const c of loginCookies) {
+      const csrf = c.match(/csrftoken=([^;]+)/); if (csrf) newCsrfToken = csrf[1];
+    }
+    setPendingCheckpoint({
+      checkpointUrl: data.checkpoint_url,
+      cookies: [...bootstrap.cookies, ...loginCookies],
+      csrfToken: newCsrfToken,
+      username,
+    });
+    return { success: false, error: "Doğrulama gerekiyor", errorType: "checkpoint" };
+  }
   if (data.two_factor_required) return { success: false, error: "Two-factor authentication required.", errorType: "two_factor" };
   if (!data.authenticated) return { success: false, error: data.message ?? "Invalid username or password", errorType: data.error_type ?? "bad_password" };
 
-  const loginCookies = getSetCookies(resp.headers);
-  let sessionId = "", newCsrfToken = csrfToken, dsUserId = data.userId ?? "";
   for (const c of loginCookies) {
     const sid  = c.match(/sessionid=([^;]+)/);  if (sid)  sessionId    = sid[1];
     const csrf = c.match(/csrftoken=([^;]+)/);  if (csrf) newCsrfToken = csrf[1];
@@ -505,33 +527,6 @@ async function loginViaWebFullEncryption(username: string, password: string): Pr
   if (!sessionId) return { success: false, error: "No sessionid returned", errorType: "no_session" };
 
   return await finalizeSession({ sessionId, csrfToken: newCsrfToken, userId: dsUserId || data.userId, username });
-}
-
-// ── Shared: fetch user info and persist session ────────────────────────────────
-
-async function finalizeSession(params: { sessionId: string; csrfToken: string; userId?: string; username: string }): Promise<LoginResult> {
-  const { sessionId, csrfToken, userId = "", username } = params;
-
-  let fullName = "", profilePicUrl = "", isVerified = false, finalUsername = username;
-  try {
-    const userResp = await fetch(`${IG_API_BASE}/api/v1/users/${userId}/info/`, {
-      headers: {
-        "User-Agent":  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-        "X-IG-App-ID": "936619743392459",
-        Cookie:        `sessionid=${sessionId}; csrftoken=${csrfToken}; ds_user_id=${userId}`,
-      },
-    });
-    if (userResp.ok) {
-      const j = await userResp.json() as { user?: { full_name?: string; profile_pic_url?: string; is_verified?: boolean; username?: string } };
-      fullName      = j.user?.full_name ?? "";
-      profilePicUrl = j.user?.profile_pic_url ?? "";
-      isVerified    = j.user?.is_verified ?? false;
-      finalUsername = j.user?.username ?? username;
-    }
-  } catch { /* optional enrichment */ }
-
-  setSession({ sessionId, csrfToken, username: finalUsername, userId, dsUserId: userId, fullName, profilePicUrl, isVerified });
-  return { success: true, userId, username: finalUsername, fullName, profilePicUrl, isVerified };
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
