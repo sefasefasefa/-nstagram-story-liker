@@ -19,7 +19,11 @@ router.post("/auth/login", async (req, res) => {
     // Persist credentials for auto-refresh
     saveCredentials(username, password);
   }
-  res.status(result.success ? 200 : 401).json(result);
+  // Always return 200 so the frontend receives the full JSON body.
+  // Failed logins are indicated by result.success === false, not by HTTP status.
+  // (Returning 401 caused the API client to throw before the error message
+  // could be read, surfacing a raw JSON-parse exception instead.)
+  res.status(200).json(result);
 });
 
 // POST /auth/logout

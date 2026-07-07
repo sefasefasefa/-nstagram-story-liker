@@ -56,7 +56,18 @@ async function fetchPublicKey(csrfToken: string): Promise<{ publicKey: string; k
       },
     }
   );
-  const data = (await resp.json()) as { public_key: string; key_id: string };
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => "");
+    const hint = body.trimStart().startsWith("<") ? "Instagram returned an HTML page (possible rate-limit or block)" : `HTTP ${resp.status}`;
+    throw new Error(`Could not fetch Instagram public key: ${hint}`);
+  }
+  const text = await resp.text();
+  let data: { public_key: string; key_id: string };
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error("Could not fetch Instagram public key: response was not valid JSON (possible rate-limit or block)");
+  }
   return { publicKey: data.public_key, keyId: parseInt(data.key_id, 10) };
 }
 
@@ -162,7 +173,17 @@ export async function instagramLogin(
       body: body.toString(),
     });
 
-    const loginData = (await loginResp.json()) as {
+    if (!loginResp.ok && loginResp.status !== 400) {
+      // Non-400 error (e.g. 429 rate-limit, 5xx, or HTML redirect) — don't try to parse JSON
+      const body = await loginResp.text().catch(() => "");
+      const hint = body.trimStart().startsWith("<")
+        ? "Instagram returned an HTML page — possible rate-limit, IP block, or checkpoint"
+        : `HTTP ${loginResp.status}`;
+      return { success: false, error: hint, errorType: "upstream_error" };
+    }
+
+    const loginText = await loginResp.text();
+    let loginData: {
       authenticated?: boolean;
       userId?: string;
       user?: boolean;
@@ -171,6 +192,14 @@ export async function instagramLogin(
       checkpoint_url?: string;
       two_factor_required?: boolean;
     };
+    try {
+      loginData = JSON.parse(loginText);
+    } catch {
+      const hint = loginText.trimStart().startsWith("<")
+        ? "Instagram returned an HTML page — possible rate-limit, IP block, or checkpoint"
+        : "Instagram login response was not valid JSON";
+      return { success: false, error: hint, errorType: "parse_error" };
+    }
 
     if (loginData.checkpoint_url) {
       return {
