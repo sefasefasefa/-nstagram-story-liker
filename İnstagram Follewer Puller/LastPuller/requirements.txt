@@ -1,0 +1,6 @@
+kivy>=2.0.0
+requests>=2.25.1
+selenium>=4.0.0
+scikit-learn>=1.0.0
+gender-guesser>=0.4.0
+numpy>=1.21.0
