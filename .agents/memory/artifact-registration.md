@@ -1,6 +1,6 @@
 ---
 name: Artifact registration for imported projects
-description: How to properly register pre-existing artifact directories as Replit artifacts
+description: How to properly register pre-existing artifact directories as Replit artifacts, and the critical port-mapping rule that prevents SecFetch Policy violations.
 ---
 
 ## Rule
@@ -16,5 +16,24 @@ Imported projects with existing `artifacts/<slug>/` dirs and `artifact.toml` fil
 
 **Why:** The managed workflow runs `pnpm --filter @workspace/<slug> run dev` — if a backup dir also has the same package name, pnpm runs the command in BOTH dirs, causing port conflicts.
 
+## CRITICAL: .replit port mapping must point to the FRONTEND port
+`[[ports]] localPort = <frontend_port> externalPort = 80`
+
+**Never** map the API server port to externalPort 80. If the API server claims port 80, all browser requests go to Express directly — bypassing Vite's proxy — and Replit's proxy returns "SecFetch Policy violation" because the request is treated as cross-service.
+
+**Why:** Replit's proxy checks Sec-Fetch headers between services. The only safe path is all browser traffic → Vite (port 80) → Vite proxy → Express (internal port). This keeps everything same-origin from the browser's perspective.
+
+## Artifact routing for frontend+API pattern
+- Frontend artifact (`paths = ["/", "/api"]`, localPort = <vite_port>): claims ALL paths including /api
+- API server artifact (`paths = []`, no external routing): internal only
+- Vite config proxy: `'/api' → 'http://127.0.0.1:<api_port>'`
+
+This way the Replit router sends everything to Vite, Vite proxies /api internally, and no cross-service SecFetch check ever fires.
+
 ## Router note
 `router = "application"` in `.replit [deployment]` requires registered artifacts for dev preview routing. Without them, the preview shows a blank page even with `[[ports]]` mappings. `createArtifact` sets `router = "path"` in the new artifact.toml, which works correctly.
+
+## CORS regex
+Must be fully anchored for credentialed requests:
+`/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$|^https:\/\/[a-z0-9-]+\.replit\.dev(:\d+)?$/`
+The unanchored form `\.replit\.dev$` was valid but any `.replit.dev` subdomain could make credentialed API calls.

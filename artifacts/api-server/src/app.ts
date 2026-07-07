@@ -26,7 +26,8 @@ app.use(
   }),
 );
 // Restrict CORS to same-origin and Replit dev domain only
-const allowedOriginPattern = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$|\.replit\.dev(:\d+)?$/;
+const allowedOriginPattern =
+  /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$|^https:\/\/[a-z0-9-]+\.replit\.dev(:\d+)?$/;
 app.use(
   cors({
     origin: (origin, callback) => {
