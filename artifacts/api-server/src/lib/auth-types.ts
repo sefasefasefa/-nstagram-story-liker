@@ -7,4 +7,5 @@ export interface LoginResult {
   isVerified?: boolean;
   error?: string;
   errorType?: string;
+  checkpointUrl?: string;
 }

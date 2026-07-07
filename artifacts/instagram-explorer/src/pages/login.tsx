@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { useLogin, useGetCurrentUser, getGetCurrentUserQueryKey } from '@workspace/api-client-react';
 import {
   Loader2, RefreshCw, ShieldCheck, AlertTriangle, KeyRound,
-  Shield, MessageSquare, Mail, RotateCcw, CheckCircle2,
+  Shield, ExternalLink, ClipboardPaste, ArrowRight,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -48,68 +48,48 @@ function useAutoStatus() {
   return status;
 }
 
-// ── Checkpoint code-entry view ────────────────────────────────────────────────
-
-interface CheckpointInfo {
-  method: 'sms' | 'email' | 'unknown' | null;
-  contact: string | null;
-}
+// ── Checkpoint: browser-based verification ───────────────────────────────────
+// Instagram's auth_platform challenge blocks server-side code sending.
+// The user must verify in their own browser, then paste the sessionid cookie.
 
 function CheckpointVerify({
-  info,
+  checkpointUrl,
   onSuccess,
   onCancel,
 }: {
-  info: CheckpointInfo;
+  checkpointUrl: string;
   onSuccess: () => void;
   onCancel: () => void;
 }) {
-  const [code, setCode] = useState('');
+  const [sessionId, setSessionId] = useState('');
   const [loading, setLoading] = useState(false);
-  const [requesting, setRequesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [requested, setRequested] = useState(false);
-  const [currentInfo, setCurrentInfo] = useState<CheckpointInfo>(info);
+  const [step, setStep] = useState<1 | 2>(1);
 
-  // Auto-request code on mount
-  useEffect(() => {
-    requestCode();
-  }, []);
+  const igVerifyUrl = `https://www.instagram.com${checkpointUrl.startsWith('/') ? checkpointUrl : '/' + checkpointUrl}`;
 
-  const requestCode = async () => {
-    setRequesting(true);
-    setError(null);
-    try {
-      const r = await fetch('/api/auth/checkpoint/request-code', { method: 'POST' });
-      const data = await r.json();
-      if (data.success === false) {
-        setError(data.error ?? 'Instagram doğrulama kodu göndermedi.');
-      } else {
-        setRequested(true);
-        if (data.method) setCurrentInfo({ method: data.method, contact: data.contact ?? null });
-      }
-    } catch {
-      setError('Bağlantı hatası. Lütfen tekrar dene.');
-    } finally {
-      setRequesting(false);
-    }
+  const openInstagram = () => {
+    window.open(igVerifyUrl, '_blank', 'noopener');
+    setStep(2);
   };
 
   const submit = async () => {
-    if (code.trim().length < 4) return;
+    const sid = sessionId.trim();
+    if (sid.length < 10) return;
     setLoading(true);
     setError(null);
     try {
-      const r = await fetch('/api/auth/checkpoint/verify', {
+      const r = await fetch('/api/session/from-id', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: code.trim() }),
+        body: JSON.stringify({ sessionId: sid }),
       });
       const data = await r.json();
       if (data.success) {
+        await fetch('/api/auth/checkpoint', { method: 'DELETE' }).catch(() => {});
         onSuccess();
       } else {
-        setError(data.error ?? 'Kod geçersiz veya süresi dolmuş.');
+        setError(data.error ?? 'SessionId geçersiz veya süresi dolmuş.');
       }
     } catch {
       setError('Bağlantı hatası. Lütfen tekrar dene.');
@@ -123,93 +103,97 @@ function CheckpointVerify({
     onCancel();
   };
 
-  const MethodIcon = currentInfo.method === 'email' ? Mail : MessageSquare;
-  const methodLabel = currentInfo.method === 'email' ? 'e-posta' : 'SMS';
-
   return (
-    <div className="w-full max-w-sm space-y-4 animate-in fade-in duration-300">
+    <div className="w-full max-w-sm space-y-3 animate-in fade-in duration-300">
       <Card className="p-6 border-border bg-card shadow-xl space-y-5">
         {/* Header */}
         <div className="flex items-center gap-3">
-          <div className="p-2.5 rounded-full bg-primary/10 shrink-0">
-            <Shield className="w-5 h-5 text-primary" />
+          <div className="p-2.5 rounded-full bg-yellow-500/10 shrink-0">
+            <Shield className="w-5 h-5 text-yellow-400" />
           </div>
           <div>
-            <h2 className="font-semibold text-foreground text-sm">Instagram doğrulaması</h2>
+            <h2 className="font-semibold text-foreground text-sm">Tarayıcıda doğrulama gerekiyor</h2>
             <p className="text-xs text-muted-foreground">
-              {requesting
-                ? 'Kod gönderiliyor…'
-                : requested
-                ? currentInfo.contact
-                  ? `${methodLabel} ile gönderildi: ${currentInfo.contact}`
-                  : `${methodLabel} ile doğrulama kodu gönderildi`
-                : 'Doğrulama kodu hazırlanıyor…'}
+              Instagram bu hesap için manuel doğrulama istiyor
             </p>
           </div>
         </div>
 
-        {/* Code input */}
-        <div className="space-y-3">
-          <Input
-            value={code}
-            onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 8))}
-            onKeyDown={e => e.key === 'Enter' && submit()}
-            placeholder="Doğrulama kodu"
-            className="text-center text-xl font-mono tracking-widest h-12 bg-background border-border/60 focus-visible:ring-1 focus-visible:ring-primary"
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            disabled={loading || requesting}
-          />
-
-          {error && (
-            <div className="flex items-start gap-2 rounded-lg bg-destructive/10 border border-destructive/30 px-3 py-2">
-              <AlertTriangle className="w-3.5 h-3.5 text-destructive mt-0.5 shrink-0" />
-              <p className="text-xs text-destructive">{error}</p>
+        {/* Steps */}
+        <div className="space-y-2">
+          {/* Step 1 */}
+          <div className={`rounded-lg border px-3 py-2.5 flex items-start gap-3 transition-colors ${step === 1 ? 'border-primary/40 bg-primary/5' : 'border-border/40 bg-transparent'}`}>
+            <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5 ${step > 1 ? 'bg-green-500 text-white' : 'bg-primary text-white'}`}>
+              {step > 1 ? '✓' : '1'}
             </div>
-          )}
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium text-foreground">Instagram'da doğrula</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">Aşağıdaki butona tıkla, Instagram'da SMS/e-posta kodunu gir</p>
+              <Button
+                size="sm"
+                className="mt-2 h-7 text-xs gap-1.5 bg-primary/90 hover:bg-primary text-white"
+                onClick={openInstagram}
+              >
+                <ExternalLink className="w-3 h-3" />
+                Instagram'ı aç
+              </Button>
+            </div>
+          </div>
 
-          <Button
-            className="w-full bg-primary hover:bg-primary/90 text-white font-semibold h-10"
-            onClick={submit}
-            disabled={loading || requesting || code.trim().length < 4}
-          >
-            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Doğrula'}
-          </Button>
+          {/* Step 2 */}
+          <div className={`rounded-lg border px-3 py-2.5 flex items-start gap-3 transition-colors ${step === 2 ? 'border-primary/40 bg-primary/5' : 'border-border/30 bg-transparent opacity-60'}`}>
+            <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5 ${step === 2 ? 'bg-primary text-white' : 'bg-muted text-muted-foreground'}`}>
+              2
+            </div>
+            <div className="flex-1 min-w-0 space-y-2">
+              <p className="text-xs font-medium text-foreground">Session ID'yi yapıştır</p>
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                Doğruladıktan sonra tarayıcıda <span className="font-mono bg-muted/60 px-1 rounded text-[10px]">F12</span> → Application → Cookies → instagram.com → <span className="font-mono bg-muted/60 px-1 rounded text-[10px]">sessionid</span> değerini kopyala
+              </p>
+              <div className="flex gap-2">
+                <Input
+                  value={sessionId}
+                  onChange={e => setSessionId(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && submit()}
+                  placeholder="sessionid değeri…"
+                  className="h-8 text-xs font-mono bg-background border-border/60 focus-visible:ring-1 focus-visible:ring-primary"
+                  disabled={loading || step === 1}
+                />
+                <Button
+                  size="sm"
+                  className="h-8 px-3 bg-primary hover:bg-primary/90 text-white gap-1 shrink-0"
+                  onClick={submit}
+                  disabled={loading || sessionId.trim().length < 10 || step === 1}
+                >
+                  {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <ArrowRight className="w-3 h-3" />}
+                </Button>
+              </div>
+            </div>
+          </div>
         </div>
 
-        {/* Resend + cancel */}
-        <div className="flex items-center gap-2 pt-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="flex-1 text-xs text-muted-foreground gap-1.5"
-            onClick={requestCode}
-            disabled={requesting}
-          >
-            {requesting
-              ? <Loader2 className="w-3 h-3 animate-spin" />
-              : <RotateCcw className="w-3 h-3" />}
-            Kodu tekrar gönder
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="flex-1 text-xs text-muted-foreground"
-            onClick={cancel}
-            disabled={loading}
-          >
-            İptal
-          </Button>
-        </div>
+        {error && (
+          <div className="flex items-start gap-2 rounded-lg bg-destructive/10 border border-destructive/30 px-3 py-2">
+            <AlertTriangle className="w-3.5 h-3.5 text-destructive mt-0.5 shrink-0" />
+            <p className="text-xs text-destructive">{error}</p>
+          </div>
+        )}
+
+        <Button
+          variant="ghost"
+          size="sm"
+          className="w-full text-xs text-muted-foreground"
+          onClick={cancel}
+          disabled={loading}
+        >
+          İptal
+        </Button>
       </Card>
 
-      <div className="rounded-lg border border-border/40 bg-card/30 px-4 py-3 flex items-start gap-2">
-        <CheckCircle2 className="w-3.5 h-3.5 text-green-400 mt-0.5 shrink-0" />
-        <p className="text-[11px] text-muted-foreground leading-relaxed">
-          Instagram, hesabına bu sunucudan giriş yapıldığını doğrulamanı istiyor.
-          {currentInfo.contact
-            ? ` ${currentInfo.contact} adresine gönderilen kodu gir.`
-            : ' Telefonuna veya e-postana gelen kodu gir.'}
+      <div className="rounded-lg border border-border/30 bg-card/20 px-4 py-2.5 flex items-start gap-2">
+        <ClipboardPaste className="w-3 h-3 text-muted-foreground/60 mt-0.5 shrink-0" />
+        <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
+          SessionID sadece bu uygulamaya kaydedilir, hiçbir yere gönderilmez.
         </p>
       </div>
     </div>
@@ -227,7 +211,7 @@ export default function Login() {
   const loginMutation = useLogin();
   const autoStatus = useAutoStatus();
 
-  const [checkpointInfo, setCheckpointInfo] = useState<CheckpointInfo | null>(null);
+  const [checkpointUrl, setCheckpointUrl] = useState<string | null>(null);
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
@@ -248,8 +232,8 @@ export default function Login() {
         queryClient.invalidateQueries({ queryKey: getGetCurrentUserQueryKey() });
         setLocation('/');
       } else if (result.errorType === 'checkpoint') {
-        // Backend already saved state — show code-entry UI
-        setCheckpointInfo({ method: null, contact: null });
+        // Backend saved checkpoint state — show browser verification UI
+        setCheckpointUrl((result as any).checkpointUrl ?? '/challenge/');
       } else {
         form.setError('root', { message: result.error || 'Giriş başarısız' });
       }
@@ -272,14 +256,14 @@ export default function Login() {
     );
   }
 
-  // ── Checkpoint code-entry ────────────────────────────────────────────────────
-  if (checkpointInfo !== null) {
+  // ── Checkpoint browser-verify ────────────────────────────────────────────────
+  if (checkpointUrl !== null) {
     return (
       <div className="min-h-screen w-full flex items-center justify-center p-4 bg-background">
         <CheckpointVerify
-          info={checkpointInfo}
+          checkpointUrl={checkpointUrl}
           onSuccess={handleVerifySuccess}
-          onCancel={() => setCheckpointInfo(null)}
+          onCancel={() => setCheckpointUrl(null)}
         />
       </div>
     );

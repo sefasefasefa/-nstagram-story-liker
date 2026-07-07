@@ -238,7 +238,7 @@ async function loginViaWebV0(username: string, password: string): Promise<LoginR
       csrfToken: newCsrfToken,
       username,
     });
-    return { success: false, error: "Doğrulama gerekiyor", errorType: "checkpoint" };
+    return { success: false, error: "Doğrulama gerekiyor", errorType: "checkpoint", checkpointUrl: data.checkpoint_url };
   }
   if (data.two_factor_required) {
     return { success: false, error: "Two-factor authentication required. Disable 2FA or use Session Manager to paste cookies.", errorType: "two_factor" };
@@ -361,7 +361,7 @@ async function loginViaMobileApi(username: string, password: string): Promise<Lo
       csrfToken: newCsrfToken,
       username,
     });
-    return { success: false, error: "Doğrulama gerekiyor", errorType: "checkpoint" };
+    return { success: false, error: "Doğrulama gerekiyor", errorType: "checkpoint", checkpointUrl: data.checkpoint_url };
   }
   if (data.two_factor_required) {
     return { success: false, error: "Two-factor authentication required. Disable 2FA or use Session Manager.", errorType: "two_factor" };
@@ -514,7 +514,7 @@ async function loginViaWebFullEncryption(username: string, password: string): Pr
       csrfToken: newCsrfToken,
       username,
     });
-    return { success: false, error: "Doğrulama gerekiyor", errorType: "checkpoint" };
+    return { success: false, error: "Doğrulama gerekiyor", errorType: "checkpoint", checkpointUrl: data.checkpoint_url };
   }
   if (data.two_factor_required) return { success: false, error: "Two-factor authentication required.", errorType: "two_factor" };
   if (!data.authenticated) return { success: false, error: data.message ?? "Invalid username or password", errorType: data.error_type ?? "bad_password" };
