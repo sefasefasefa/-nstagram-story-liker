@@ -114,8 +114,7 @@ export default function SessionManager() {
           SESSION_MANAGER
         </h1>
         <p className="text-muted-foreground font-mono text-sm">
-          Inject browser cookies to perform authenticated requests.
-          <strong className="text-yellow-400 ml-1">On Replit, this is the recommended login method — Instagram blocks datacenter IPs on the password login flow.</strong>
+          Inject browser cookies directly — use this if username/password login is blocked by Instagram on this server's IP.
         </p>
       </div>
 

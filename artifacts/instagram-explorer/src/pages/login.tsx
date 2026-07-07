@@ -4,7 +4,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useLogin, useGetCurrentUser, getGetCurrentUserQueryKey } from '@workspace/api-client-react';
-import { Loader2, RefreshCw, ShieldCheck, AlertTriangle, ExternalLink } from 'lucide-react';
+import { Loader2, RefreshCw, ShieldCheck, AlertTriangle, ExternalLink, KeyRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Form, FormControl, FormField, FormItem, FormMessage } from '@/components/ui/form';
@@ -64,7 +64,7 @@ export default function Login() {
   }, [user, setLocation]);
 
   const isIpBlockError = (msg: string) =>
-    msg.includes('IP block') || msg.includes('rate-limit') || msg.includes('public key');
+    msg.includes('Both login paths failed') || msg.includes('ip_block');
 
   const onSubmit = async (data: LoginFormValues) => {
     try {
@@ -115,25 +115,6 @@ export default function Login() {
             </div>
           </Card>
         )}
-
-        {/* Replit IP block notice */}
-        <Card className="px-4 py-3 border-yellow-500/30 bg-yellow-500/5 flex items-start gap-3">
-          <AlertTriangle className="w-4 h-4 mt-0.5 text-yellow-400 shrink-0" />
-          <div className="text-xs space-y-1">
-            <div className="font-semibold text-yellow-400">Running on Replit? Use session cookies instead</div>
-            <div className="text-muted-foreground leading-relaxed">
-              Instagram blocks cloud server IPs on the password login flow.{' '}
-              <button
-                type="button"
-                className="text-yellow-400 underline underline-offset-2 hover:text-yellow-300"
-                onClick={() => setLocation('/session')}
-              >
-                Go to Session Manager
-              </button>{' '}
-              and paste your <code className="text-foreground bg-black/30 px-1 rounded">sessionid</code> + <code className="text-foreground bg-black/30 px-1 rounded">csrftoken</code> cookies from your browser instead.
-            </div>
-          </div>
-        </Card>
 
         <Card className="p-8 border-border bg-card shadow-xl flex flex-col items-center">
           <div className="mb-6 mt-2 text-center space-y-1">
@@ -187,10 +168,10 @@ export default function Login() {
                   <div className="rounded-lg border border-yellow-500/40 bg-yellow-500/10 px-4 py-3 space-y-2">
                     <div className="flex items-center gap-2 text-yellow-400 font-semibold text-sm">
                       <AlertTriangle className="w-4 h-4 shrink-0" />
-                      Instagram blocked this server's IP
+                      Instagram is blocking this server's IP
                     </div>
                     <p className="text-xs text-muted-foreground leading-relaxed">
-                      Username/password login requires fetching Instagram's encryption key, which is blocked on cloud servers. Use <strong className="text-foreground">session cookies</strong> instead — extract them from your browser in 30 seconds.
+                      Both login paths were blocked. Use the <strong className="text-foreground">Session Manager</strong> to paste cookies directly from your browser instead.
                     </p>
                     <Button
                       type="button"
@@ -199,8 +180,8 @@ export default function Login() {
                       className="w-full border-yellow-500/50 text-yellow-400 hover:bg-yellow-500/10 gap-2 text-xs"
                       onClick={() => setLocation('/session')}
                     >
-                      <ExternalLink className="w-3 h-3" />
-                      Go to Session Manager → paste cookies
+                      <KeyRound className="w-3 h-3" />
+                      Open Session Manager
                     </Button>
                   </div>
                 ) : (
