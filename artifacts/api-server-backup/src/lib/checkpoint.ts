@@ -79,11 +79,28 @@ function absorb(state: CheckpointState, headers: Headers): void {
 async function mobileHeaders(state: CheckpointState): Promise<Record<string, string>> {
   return {
     "User-Agent":      MOBILE_UA,
+    Accept:            "*/*",
     "X-IG-App-ID":     "567067343352427",
+    "X-ASBD-ID":       "198387",
     "X-CSRFToken":     state.csrfToken,
     "Accept-Language": "en-US,en;q=0.9",
+    // Instagram's edge now rejects i.instagram.com requests missing these —
+    // even from a "mobile" client — with a bare "SecFetch Policy violation." body.
+    "Sec-Fetch-Site":  "same-origin",
+    "Sec-Fetch-Mode":  "cors",
+    "Sec-Fetch-Dest":  "empty",
+    Origin:            IG_WEB_BASE,
+    Referer:           new URL(state.checkpointUrl, IG_WEB_BASE).toString(),
     Cookie:            cookieStrFrom(state.cookies),
   };
+}
+
+/** True when Instagram's edge rejected the request outright (e.g. "SecFetch Policy violation.")
+ *  rather than returning its normal JSON challenge payload. Callers must not treat this as a
+ *  benign "unknown method" case — the request never reached the challenge flow at all. */
+function isWafBlockBody(rawText: string): boolean {
+  const t = rawText.trim();
+  return t.length > 0 && !t.startsWith("{") && !t.startsWith("[");
 }
 
 async function startMobileChallenge(state: CheckpointState): Promise<StartChallengeResult> {
@@ -108,6 +125,15 @@ async function startMobileChallenge(state: CheckpointState): Promise<StartChalle
     absorb(state, r.headers);
     const rawText = await r.text();
     logger.info({ status: r.status, body: rawText.slice(0, 400) }, "checkpoint: mobile GET raw");
+
+    if (isWafBlockBody(rawText)) {
+      logger.warn({ status: r.status, body: rawText.slice(0, 200) }, "checkpoint: mobile GET blocked by edge (non-JSON)");
+      return {
+        success: false,
+        error: `Instagram bu isteği reddetti (${rawText.trim().slice(0, 120)}). Sunucunun IP adresi engellenmiş olabilir.`,
+      };
+    }
+
     const data = JSON.parse(rawText) as any;
     logger.info({ stepName: data.step_name, phone: data.phone_number, email: data.email }, "checkpoint: mobile GET");
 
@@ -120,6 +146,7 @@ async function startMobileChallenge(state: CheckpointState): Promise<StartChalle
     }
   } catch (err) {
     logger.warn({ err }, "checkpoint: mobile GET failed");
+    return { success: false, error: `Instagram'a bağlanılamadı: ${String(err)}` };
   }
 
   state.verifyMethod = method;
@@ -147,6 +174,15 @@ async function startMobileChallenge(state: CheckpointState): Promise<StartChalle
     absorb(state, r.headers);
     const rawText = await r.text();
     logger.info({ status: r.status, body: rawText.slice(0, 400) }, "checkpoint: mobile choice POST raw");
+
+    if (isWafBlockBody(rawText)) {
+      logger.warn({ status: r.status, body: rawText.slice(0, 200) }, "checkpoint: mobile choice POST blocked by edge (non-JSON)");
+      return {
+        success: false,
+        error: `Instagram bu isteği reddetti (${rawText.trim().slice(0, 120)}). Sunucunun IP adresi engellenmiş olabilir.`,
+      };
+    }
+
     const data = JSON.parse(rawText) as any;
     logger.info({ stepName: data.step_name, status: r.status }, "checkpoint: mobile choice POST");
 
@@ -306,6 +342,15 @@ async function verifyMobile(state: CheckpointState, code: string): Promise<Login
   absorb(state, resp.headers);
   const text = await resp.text().catch(() => "");
   logger.info({ status: resp.status, preview: text.slice(0, 200) }, "checkpoint: mobile verify");
+
+  if (isWafBlockBody(text)) {
+    logger.warn({ status: resp.status, body: text.slice(0, 200) }, "checkpoint: mobile verify blocked by edge (non-JSON)");
+    return {
+      success: false,
+      error: `Instagram bu isteği reddetti (${text.trim().slice(0, 120)}). Sunucunun IP adresi engellenmiş olabilir.`,
+      errorType: "ip_block",
+    };
+  }
 
   let data: any = {};
   try { data = JSON.parse(text); } catch { /* HTML response */ }
