@@ -33,6 +33,9 @@ This way the Replit router sends everything to Vite, Vite proxies /api internall
 ## Router note
 `router = "application"` in `.replit [deployment]` requires registered artifacts for dev preview routing. Without them, the preview shows a blank page even with `[[ports]]` mappings. `createArtifact` sets `router = "path"` in the new artifact.toml, which works correctly.
 
+## Registering via existing artifact.toml (in place, no scaffold)
+If `createArtifact`/import tooling registers an artifact directly against an existing `artifacts/<name>-backup/` dir (rather than creating a fresh scaffold at the canonical slug), the directory name itself becomes the permanent artifact path — there's no supported rename flow (no callback moves an artifact's directory). Leaving the `-backup` name is safe/cosmetic as long as it's the only dir with that package name (no port conflicts). Just double check `services.production.run.args` in that artifact's toml — it may still reference the old canonical path (e.g. `artifacts/api-server/dist/index.mjs`) even though the real dir is `artifacts/api-server-backup`; fix via `verifyAndReplaceArtifactToml`.
+
 ## CORS regex
 Must be fully anchored for credentialed requests:
 `/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$|^https:\/\/[a-z0-9-]+\.replit\.dev(:\d+)?$/`

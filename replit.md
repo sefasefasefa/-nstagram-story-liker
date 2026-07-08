@@ -4,8 +4,13 @@ A developer tool for security researchers and engineers to inspect and test Inst
 
 ## Run & Operate
 
-- `PORT=8080 pnpm --filter @workspace/api-server run dev` — run the API server (port 8080)
-- `PORT=5173 BASE_PATH=/ pnpm --filter @workspace/instagram-explorer run dev` — run the frontend (port 5173)
+All three services run as managed Replit workflows (started automatically):
+- `artifacts/instagram-explorer: web` — frontend, port 18900, served at `/`
+- `artifacts/api-server-backup: API Server` — Express API proxy, port 8080, served at `/api` (directory is named `api-server-backup`, a leftover from import; the package itself is `@workspace/api-server`)
+- `artifacts/mockup-sandbox: Component Preview Server` — canvas component preview, port 8081, served at `/__mockup`
+
+To restart a service manually, use the Replit workflow restart tool with the exact workflow name above (do not run the dev commands directly — the managed workflows inject required `PORT`/`BASE_PATH` env vars).
+
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 
