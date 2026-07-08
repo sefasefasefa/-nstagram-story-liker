@@ -5,8 +5,8 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useLogin, useGetCurrentUser, getGetCurrentUserQueryKey } from '@workspace/api-client-react';
 import {
-  Loader2, RefreshCw, ShieldCheck, AlertTriangle, KeyRound,
-  Shield, ExternalLink, ClipboardPaste, ArrowRight,
+  Loader2, RefreshCw, ShieldCheck, AlertTriangle,
+  Shield, ArrowRight,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -48,53 +48,79 @@ function useAutoStatus() {
   return status;
 }
 
-// ── Checkpoint: browser-based verification ───────────────────────────────────
-// Instagram's auth_platform challenge blocks server-side code sending.
-// The user must verify in their own browser, then paste the sessionid cookie.
+// ── Checkpoint: in-app OTP verification ────────────────────────────────────────
+// Instagram sometimes requires a one-time SMS/email code after username/password
+// login ("checkpoint"). This requests the code and verifies it directly in the
+// app — no browser tab-switching or manual cookie copying required.
 
-function CheckpointVerify({
-  checkpointUrl,
+type CheckpointPhase = 'requesting' | 'awaiting-code' | 'verifying' | 'failed';
+
+function CheckpointOtpVerify({
   onSuccess,
   onCancel,
 }: {
-  checkpointUrl: string;
   onSuccess: () => void;
   onCancel: () => void;
 }) {
-  const [sessionId, setSessionId] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [phase, setPhase] = useState<CheckpointPhase>('requesting');
+  const [method, setMethod] = useState<'sms' | 'email' | 'unknown' | null>(null);
+  const [contact, setContact] = useState<string | null>(null);
+  const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [step, setStep] = useState<1 | 2>(1);
+  const [resending, setResending] = useState(false);
 
-  const igVerifyUrl = `https://www.instagram.com${checkpointUrl.startsWith('/') ? checkpointUrl : '/' + checkpointUrl}`;
-
-  const openInstagram = () => {
-    window.open(igVerifyUrl, '_blank', 'noopener');
-    setStep(2);
-  };
-
-  const submit = async () => {
-    const sid = sessionId.trim();
-    if (sid.length < 10) return;
-    setLoading(true);
+  const requestCode = async () => {
+    setPhase('requesting');
     setError(null);
     try {
-      const r = await fetch('/api/session/from-id', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId: sid }),
-      });
+      const r = await fetch('/api/auth/checkpoint/request-code', { method: 'POST' });
       const data = await r.json();
       if (data.success) {
-        await fetch('/api/auth/checkpoint', { method: 'DELETE' }).catch(() => {});
-        onSuccess();
+        setMethod(data.method ?? 'unknown');
+        setContact(data.contact ?? null);
+        setPhase('awaiting-code');
       } else {
-        setError(data.error ?? 'SessionId geçersiz veya süresi dolmuş.');
+        setError(data.error ?? 'Doğrulama kodu gönderilemedi.');
+        setPhase('failed');
       }
     } catch {
       setError('Bağlantı hatası. Lütfen tekrar dene.');
-    } finally {
-      setLoading(false);
+      setPhase('failed');
+    }
+  };
+
+  useEffect(() => {
+    requestCode();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const resend = async () => {
+    setResending(true);
+    await requestCode();
+    setResending(false);
+  };
+
+  const submit = async () => {
+    const trimmed = code.trim();
+    if (trimmed.length < 4) return;
+    setPhase('verifying');
+    setError(null);
+    try {
+      const r = await fetch('/api/auth/checkpoint/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: trimmed }),
+      });
+      const data = await r.json();
+      if (data.success) {
+        onSuccess();
+      } else {
+        setError(data.error ?? 'Kod hatalı veya süresi dolmuş.');
+        setPhase('awaiting-code');
+      }
+    } catch {
+      setError('Bağlantı hatası. Lütfen tekrar dene.');
+      setPhase('awaiting-code');
     }
   };
 
@@ -103,176 +129,79 @@ function CheckpointVerify({
     onCancel();
   };
 
-  return (
-    <div className="w-full max-w-sm space-y-3 animate-in fade-in duration-300">
-      <Card className="p-6 border-border bg-card shadow-xl space-y-5">
-        {/* Header */}
-        <div className="flex items-center gap-3">
-          <div className="p-2.5 rounded-full bg-yellow-500/10 shrink-0">
-            <Shield className="w-5 h-5 text-yellow-400" />
-          </div>
-          <div>
-            <h2 className="font-semibold text-foreground text-sm">Tarayıcıda doğrulama gerekiyor</h2>
-            <p className="text-xs text-muted-foreground">
-              Instagram bu hesap için manuel doğrulama istiyor
-            </p>
-          </div>
-        </div>
-
-        {/* Steps */}
-        <div className="space-y-2">
-          {/* Step 1 */}
-          <div className={`rounded-lg border px-3 py-2.5 flex items-start gap-3 transition-colors ${step === 1 ? 'border-primary/40 bg-primary/5' : 'border-border/40 bg-transparent'}`}>
-            <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5 ${step > 1 ? 'bg-green-500 text-white' : 'bg-primary text-white'}`}>
-              {step > 1 ? '✓' : '1'}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-foreground">Instagram'da doğrula</p>
-              <p className="text-[11px] text-muted-foreground mt-0.5">Aşağıdaki butona tıkla, Instagram'da SMS/e-posta kodunu gir</p>
-              <Button
-                size="sm"
-                className="mt-2 h-7 text-xs gap-1.5 bg-primary/90 hover:bg-primary text-white"
-                onClick={openInstagram}
-              >
-                <ExternalLink className="w-3 h-3" />
-                Instagram'ı aç
-              </Button>
-            </div>
-          </div>
-
-          {/* Step 2 */}
-          <div className={`rounded-lg border px-3 py-2.5 flex items-start gap-3 transition-colors ${step === 2 ? 'border-primary/40 bg-primary/5' : 'border-border/30 bg-transparent opacity-60'}`}>
-            <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5 ${step === 2 ? 'bg-primary text-white' : 'bg-muted text-muted-foreground'}`}>
-              2
-            </div>
-            <div className="flex-1 min-w-0 space-y-2">
-              <p className="text-xs font-medium text-foreground">Session ID'yi yapıştır</p>
-              <p className="text-[11px] text-muted-foreground leading-relaxed">
-                Doğruladıktan sonra tarayıcıda <span className="font-mono bg-muted/60 px-1 rounded text-[10px]">F12</span> → Application → Cookies → instagram.com → <span className="font-mono bg-muted/60 px-1 rounded text-[10px]">sessionid</span> değerini kopyala
-              </p>
-              <div className="flex gap-2">
-                <Input
-                  value={sessionId}
-                  onChange={e => setSessionId(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && submit()}
-                  placeholder="sessionid değeri…"
-                  className="h-8 text-xs font-mono bg-background border-border/60 focus-visible:ring-1 focus-visible:ring-primary"
-                  disabled={loading || step === 1}
-                />
-                <Button
-                  size="sm"
-                  className="h-8 px-3 bg-primary hover:bg-primary/90 text-white gap-1 shrink-0"
-                  onClick={submit}
-                  disabled={loading || sessionId.trim().length < 10 || step === 1}
-                >
-                  {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <ArrowRight className="w-3 h-3" />}
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {error && (
-          <div className="flex items-start gap-2 rounded-lg bg-destructive/10 border border-destructive/30 px-3 py-2">
-            <AlertTriangle className="w-3.5 h-3.5 text-destructive mt-0.5 shrink-0" />
-            <p className="text-xs text-destructive">{error}</p>
-          </div>
-        )}
-
-        <Button
-          variant="ghost"
-          size="sm"
-          className="w-full text-xs text-muted-foreground"
-          onClick={cancel}
-          disabled={loading}
-        >
-          İptal
-        </Button>
-      </Card>
-
-      <div className="rounded-lg border border-border/30 bg-card/20 px-4 py-2.5 flex items-start gap-2">
-        <ClipboardPaste className="w-3 h-3 text-muted-foreground/60 mt-0.5 shrink-0" />
-        <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
-          SessionID sadece bu uygulamaya kaydedilir, hiçbir yere gönderilmez.
-        </p>
-      </div>
-    </div>
-  );
-}
-
-// ── Session ID quick-login (primary path) ──────────────────────────────────────
-// Username/password login is almost always blocked by Instagram's anti-scripting
-// checkpoint when it originates from a datacenter IP (like this server's). Pasting
-// a sessionid cookie extracted from an already-logged-in browser works reliably,
-// so it's offered as the default, upfront option instead of a fallback.
-
-function SessionIdQuickLogin({ onSuccess }: { onSuccess: () => void }) {
-  const [sessionId, setSessionId] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const submit = async () => {
-    const sid = sessionId.trim();
-    if (sid.length < 10) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const r = await fetch('/api/session/from-id', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId: sid }),
-      });
-      const data = await r.json();
-      if (data.success) {
-        onSuccess();
-      } else {
-        setError(data.error ?? 'SessionId geçersiz veya süresi dolmuş.');
-      }
-    } catch {
-      setError('Bağlantı hatası. Lütfen tekrar dene.');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const methodLabel = method === 'sms' ? 'SMS' : method === 'email' ? 'e-posta' : 'SMS/e-posta';
 
   return (
-    <Card className="p-6 border-border bg-card shadow-xl space-y-4">
+    <Card className="p-6 border-border bg-card shadow-xl space-y-5 animate-in fade-in duration-300">
       <div className="flex items-center gap-3">
-        <div className="p-2.5 rounded-full bg-primary/10 shrink-0">
-          <KeyRound className="w-5 h-5 text-primary" />
+        <div className="p-2.5 rounded-full bg-yellow-500/10 shrink-0">
+          <Shield className="w-5 h-5 text-yellow-400" />
         </div>
         <div>
-          <h2 className="font-semibold text-foreground text-sm">Session ID ile giriş yap</h2>
+          <h2 className="font-semibold text-foreground text-sm">Doğrulama kodu gerekiyor</h2>
           <p className="text-xs text-muted-foreground">
-            Instagram bu sunucudan otomatik girişleri engelliyor — bunun yerine tarayıcında
-            zaten giriş yaptığın Instagram oturumundan <span className="font-mono text-[11px]">sessionid</span> çerezini yapıştır
+            Instagram bu giriş için ek doğrulama istiyor
           </p>
         </div>
       </div>
 
-      <div className="space-y-2">
-        <p className="text-[11px] text-muted-foreground leading-relaxed">
-          instagram.com'da giriş yapmışken <span className="font-mono bg-muted/60 px-1 rounded text-[10px]">F12</span> → Application → Cookies → instagram.com → <span className="font-mono bg-muted/60 px-1 rounded text-[10px]">sessionid</span> değerini kopyala
-        </p>
-        <div className="flex gap-2">
-          <Input
-            value={sessionId}
-            onChange={e => setSessionId(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && submit()}
-            placeholder="sessionid değeri…"
-            className="h-9 text-xs font-mono bg-background border-border/60 focus-visible:ring-1 focus-visible:ring-primary"
-            disabled={loading}
-          />
-          <Button
-            size="sm"
-            className="h-9 px-3 bg-primary hover:bg-primary/90 text-white gap-1 shrink-0"
-            onClick={submit}
-            disabled={loading || sessionId.trim().length < 10}
-          >
-            {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ArrowRight className="w-3.5 h-3.5" />}
-          </Button>
+      {phase === 'requesting' && (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
+          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          Kod gönderiliyor{contact ? ` (${contact})` : '…'}
         </div>
-      </div>
+      )}
+
+      {(phase === 'awaiting-code' || phase === 'verifying') && (
+        <div className="space-y-2">
+          {method === 'unknown' && !contact ? (
+            <p className="text-[11px] text-yellow-400/80 leading-relaxed">
+              Instagram hangi yöntemi kullanacağını bildirmedi — telefonuna gelen bir onay bildirimini kontrol et
+              veya SMS/e-posta ile bir kod geldiyse aşağıya gir.
+            </p>
+          ) : (
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              {contact
+                ? <>Instagram <strong className="text-foreground">{contact}</strong> adresine {methodLabel} ile bir kod gönderdi. Kodu aşağıya gir.</>
+                : <>Instagram {methodLabel} ile bir kod gönderdi. Kodu aşağıya gir.</>}
+            </p>
+          )}
+          <div className="flex gap-2">
+            <Input
+              value={code}
+              onChange={e => setCode(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && submit()}
+              placeholder="Doğrulama kodu…"
+              inputMode="numeric"
+              className="h-9 text-sm font-mono bg-background border-border/60 focus-visible:ring-1 focus-visible:ring-primary text-center tracking-widest"
+              disabled={phase === 'verifying'}
+              autoFocus
+            />
+            <Button
+              size="sm"
+              className="h-9 px-3 bg-primary hover:bg-primary/90 text-white gap-1 shrink-0"
+              onClick={submit}
+              disabled={phase === 'verifying' || code.trim().length < 4}
+            >
+              {phase === 'verifying' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ArrowRight className="w-3.5 h-3.5" />}
+            </Button>
+          </div>
+          <button
+            type="button"
+            onClick={resend}
+            disabled={resending}
+            className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+          >
+            {resending ? 'Kod tekrar gönderiliyor…' : 'Kodu tekrar gönder'}
+          </button>
+        </div>
+      )}
+
+      {phase === 'failed' && (
+        <p className="text-[11px] text-muted-foreground leading-relaxed">
+          Instagram bu sunucuya kod gönderemedi. Bu genelde sunucunun IP'sinin bot olarak işaretlenmesinden kaynaklanır.
+        </p>
+      )}
 
       {error && (
         <div className="flex items-start gap-2 rounded-lg bg-destructive/10 border border-destructive/30 px-3 py-2">
@@ -281,12 +210,26 @@ function SessionIdQuickLogin({ onSuccess }: { onSuccess: () => void }) {
         </div>
       )}
 
-      <div className="rounded-lg border border-border/30 bg-card/20 px-3 py-2 flex items-start gap-2">
-        <ClipboardPaste className="w-3 h-3 text-muted-foreground/60 mt-0.5 shrink-0" />
-        <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
-          SessionID sadece bu uygulamaya kaydedilir, hiçbir yere gönderilmez. Ayrıca <span className="text-foreground/80">Oturum Yöneticisi</span> sayfasından tek tıkla bookmarklet ile de çıkarabilirsin.
-        </p>
-      </div>
+      {phase === 'failed' && (
+        <Button
+          size="sm"
+          variant="outline"
+          className="w-full text-xs gap-1.5"
+          onClick={requestCode}
+        >
+          <RefreshCw className="w-3 h-3" />
+          Tekrar dene
+        </Button>
+      )}
+
+      <Button
+        variant="ghost"
+        size="sm"
+        className="w-full text-xs text-muted-foreground"
+        onClick={cancel}
+      >
+        İptal
+      </Button>
     </Card>
   );
 }
@@ -302,8 +245,7 @@ export default function Login() {
   const loginMutation = useLogin();
   const autoStatus = useAutoStatus();
 
-  const [checkpointUrl, setCheckpointUrl] = useState<string | null>(null);
-  const [showPasswordLogin, setShowPasswordLogin] = useState(false);
+  const [checkpointPending, setCheckpointPending] = useState(false);
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
@@ -324,8 +266,8 @@ export default function Login() {
         queryClient.invalidateQueries({ queryKey: getGetCurrentUserQueryKey() });
         setLocation('/');
       } else if (result.errorType === 'checkpoint') {
-        // Backend saved checkpoint state — show browser verification UI
-        setCheckpointUrl((result as any).checkpointUrl ?? '/challenge/');
+        // Backend saved checkpoint state — show in-app OTP verification
+        setCheckpointPending(true);
       } else {
         form.setError('root', { message: result.error || 'Giriş başarısız' });
       }
@@ -348,15 +290,16 @@ export default function Login() {
     );
   }
 
-  // ── Checkpoint browser-verify ────────────────────────────────────────────────
-  if (checkpointUrl !== null) {
+  // ── Checkpoint OTP verification ─────────────────────────────────────────────
+  if (checkpointPending) {
     return (
       <div className="min-h-screen w-full flex items-center justify-center p-4 bg-background">
-        <CheckpointVerify
-          checkpointUrl={checkpointUrl}
-          onSuccess={handleVerifySuccess}
-          onCancel={() => setCheckpointUrl(null)}
-        />
+        <div className="w-full max-w-sm">
+          <CheckpointOtpVerify
+            onSuccess={handleVerifySuccess}
+            onCancel={() => setCheckpointPending(false)}
+          />
+        </div>
       </div>
     );
   }
@@ -389,110 +332,92 @@ export default function Login() {
           </Card>
         )}
 
-        <div className="text-center space-y-1 pb-1">
-          <h1 className="text-3xl font-serif italic tracking-wide text-foreground">Instagram</h1>
-        </div>
+        <Card className="p-8 border-border bg-card shadow-xl flex flex-col items-center">
+          <div className="mb-6 mt-2 text-center space-y-1">
+            <h1 className="text-3xl font-serif italic tracking-wide text-foreground">Instagram</h1>
+            <p className="text-xs text-muted-foreground">
+              Giriş yap — şifren şifrelenip kaydedilir, gerekirse doğrulama kodu istenir
+            </p>
+          </div>
 
-        <SessionIdQuickLogin onSuccess={handleVerifySuccess} />
-
-        {!showPasswordLogin ? (
-          <button
-            type="button"
-            onClick={() => setShowPasswordLogin(true)}
-            className="w-full text-center text-xs text-muted-foreground hover:text-foreground transition-colors py-1"
-          >
-            Bunun yerine kullanıcı adı / şifre ile dene (genellikle engellenir)
-          </button>
-        ) : (
-          <Card className="p-6 border-border bg-card shadow-xl flex flex-col items-center">
-            <div className="mb-4 mt-1 text-center space-y-1">
-              <p className="text-xs text-muted-foreground">
-                Giriş yap — şifren şifrelenip kaydedilir, oturum otomatik yenilenir
-              </p>
-              <p className="text-[11px] text-yellow-400/80">
-                Bu sunucunun IP'si Instagram tarafından bot olarak işaretlenebilir ve doğrulama kodu gönderilmeyebilir.
-              </p>
-            </div>
-
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="w-full space-y-3">
-                <FormField
-                  control={form.control}
-                  name="username"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormControl>
-                        <Input
-                          placeholder="Telefon, kullanıcı adı veya e-posta"
-                          className="bg-background text-sm h-10 border-border/60 focus-visible:ring-1 focus-visible:ring-border"
-                          autoComplete="username"
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="password"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormControl>
-                        <Input
-                          type="password"
-                          placeholder="Şifre"
-                          className="bg-background text-sm h-10 border-border/60 focus-visible:ring-1 focus-visible:ring-border"
-                          autoComplete="current-password"
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                {form.formState.errors.root && (
-                  isIpBlockError(form.formState.errors.root.message ?? '') ? (
-                    <div className="rounded-lg border border-yellow-500/40 bg-yellow-500/10 px-4 py-3 space-y-2">
-                      <div className="flex items-center gap-2 text-yellow-400 font-semibold text-sm">
-                        <AlertTriangle className="w-4 h-4 shrink-0" />
-                        Instagram sunucu IP'sini engelliyor
-                      </div>
-                      <p className="text-xs text-muted-foreground leading-relaxed">
-                        Her iki giriş yolu da engellendi. Bunun yerine yukarıdaki Session ID alanını kullan.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="text-destructive text-sm text-center py-1">
-                      {form.formState.errors.root.message}
-                    </div>
-                  )
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="w-full space-y-3">
+              <FormField
+                control={form.control}
+                name="username"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormControl>
+                      <Input
+                        placeholder="Telefon, kullanıcı adı veya e-posta"
+                        className="bg-background text-sm h-10 border-border/60 focus-visible:ring-1 focus-visible:ring-border"
+                        autoComplete="username"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
                 )}
+              />
+              <FormField
+                control={form.control}
+                name="password"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormControl>
+                      <Input
+                        type="password"
+                        placeholder="Şifre"
+                        className="bg-background text-sm h-10 border-border/60 focus-visible:ring-1 focus-visible:ring-border"
+                        autoComplete="current-password"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-                <Button
-                  type="submit"
-                  className="w-full bg-primary hover:bg-primary/90 text-white font-semibold mt-1 h-9 rounded-lg"
-                  disabled={loginMutation.isPending}
-                >
-                  {loginMutation.isPending ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    'Giriş Yap'
-                  )}
-                </Button>
+              {form.formState.errors.root && (
+                isIpBlockError(form.formState.errors.root.message ?? '') ? (
+                  <div className="rounded-lg border border-yellow-500/40 bg-yellow-500/10 px-4 py-3 space-y-2">
+                    <div className="flex items-center gap-2 text-yellow-400 font-semibold text-sm">
+                      <AlertTriangle className="w-4 h-4 shrink-0" />
+                      Instagram sunucu IP'sini engelliyor
+                    </div>
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      Her iki giriş yolu da engellendi. Lütfen birkaç dakika sonra tekrar dene.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="text-destructive text-sm text-center py-1">
+                    {form.formState.errors.root.message}
+                  </div>
+                )
+              )}
 
-                <div className="pt-2 flex items-start gap-2 text-[11px] text-muted-foreground bg-muted/20 rounded-lg px-3 py-2">
-                  <RefreshCw className="w-3 h-3 mt-0.5 shrink-0 text-primary/60" />
-                  <span>
-                    Şifren cihazında AES-256 ile şifrelenerek saklanır.
-                    Oturum süresi dolduğunda otomatik yenilenir, tekrar giriş yapman gerekmez.
-                  </span>
-                </div>
-              </form>
-            </Form>
-          </Card>
-        )}
+              <Button
+                type="submit"
+                className="w-full bg-primary hover:bg-primary/90 text-white font-semibold mt-1 h-9 rounded-lg"
+                disabled={loginMutation.isPending}
+              >
+                {loginMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  'Giriş Yap'
+                )}
+              </Button>
+
+              <div className="pt-2 flex items-start gap-2 text-[11px] text-muted-foreground bg-muted/20 rounded-lg px-3 py-2">
+                <RefreshCw className="w-3 h-3 mt-0.5 shrink-0 text-primary/60" />
+                <span>
+                  Şifren cihazında AES-256 ile şifrelenerek saklanır.
+                  Oturum süresi dolduğunda otomatik yenilenir, tekrar giriş yapman gerekmez.
+                </span>
+              </div>
+            </form>
+          </Form>
+        </Card>
       </div>
     </div>
   );
