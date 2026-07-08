@@ -1,0 +1,135 @@
+Instagram Otomasyonlarında Güvenlik Kontrol Noktası (Checkpoint) Yönetimi ve Doğrulama Kodu Tetikleme Protokolü
+Instagram'ın güvenlik mimarisi, otomatik tarama (scraping) ve yetkisiz veri erişim faaliyetlerini engellemek amacıyla gelişmiş bot tespit sistemleriyle donatılmıştır. Platform; şüpheli IP adresleri, olağan dışı TLS el sıkışmaları (TLS fingerprinting), tutarsız başlık (header) kombinasyonları veya hızlı istek tekrarları tespit ettiğinde, standart istemci akışını keserek bir güvenlik kontrol noktası (checkpoint) sınaması başlatır. Sistemsel entegrasyonlarda ve özel API uygulamalarında bu engeli aşabilmek için, dönen hata yanıtını yakalamak, doğru HTTP başlıkları ve oturum çerezleriyle Instagram sunucularına istek atarak doğrulama kodunun (SMS veya E-posta) gönderilmesini tetiklemek ve gelen kodu sisteme geri bildirmek gerekmektedir. [1][2][3][4][5][6][7][8]
+Checkpoint Mekanizmasının Algılanması ve Yanıt Yapısı
+Otomatik bir işlem veya giriş denemesi sırasında Instagram sunucuları güvenlik engeline karar verdiğinde, istek ⁠400 Bad Request⁠ veya ⁠401 Unauthorized⁠ HTTP durum koduyla sonlandırılır. Sunucudan dönen JSON yanıt yükü, sürecin bir kontrol noktasına yönlendirildiğini açıkça belirtir. [1][2][3][4][5][6][7][8]
+Sunucu Checkpoint Yanıt Yapısı
+Parametre
+Veri Tipi
+Açıklama
+Kaynak
+message
+String
+Güvenlik durumunu belirten mesaj. Genellikle checkpoint_required değerini alır.
+
+checkpoint_url
+String
+Sınamanın tamamlanması için yönlendirilen göreceli veya mutlak URL adresi.
+
+lock
+Boolean
+Hesabın geçici veya kalıcı olarak kilitlenip kilitlenmediğini belirtir.
+
+flow_render_type
+Integer
+Arayüzün istemcide nasıl işleneceğini belirleyen dahili kod.
+
+status
+String
+İşlemin durum kodu, başarısızlık durumunda fail döner.
+
+
+Gelen yanıttaki en kritik veri ⁠checkpoint_url⁠ parametresidir. Bu parametre genellikle ⁠/challenge/6242737647/GMoK4dsqH9/⁠ benzeri bir dinamik yol (path) içerir. Bu yolun içerisindeki ilk nümerik değer hesabın benzersiz kullanıcı kimliğini (User ID), ikinci alfa-nümerik değer ise bu sınama oturumuna özel üretilmiş geçici doğrulama anahtarını (Nonce Code) temsil eder. [1][2][3][4]
+Güvenlik Sınamasını Geçmek İçin Gerekli İstek Başlıkları (Headers)
+Instagram sunucuları, güvenlik sınaması (challenge) isteklerini gönderen istemcinin gerçek bir tarayıcı veya resmi mobil uygulama olup olmadığını anlamak için başlık bilgilerini ve çerez (cookie) bütünlüğünü katı bir şekilde denetler. Eksik veya tutarsız başlık kullanımı, tetikleme isteğinin doğrudan engellenmesine ve oturumun kalıcı olarak kapatılmasına neden olur. [1][2][3][4]
+Kritik HTTP İstek Başlıkları
+Başlık Bilgisi (Header)
+Değer Yapısı / Örneği
+İşlevi ve Önemi
+Kaynak
+User-Agent
+Mozilla/5.0 (Windows NT 10.0; Win64; x64) ...
+İsteği yapan tarayıcı motorunu simüle eder. Yapılan TLS parmak izi ile birebir uyumlu olmalıdır.
+
+X-IG-App-ID
+936619743392459
+Instagram web uygulamasına ait sabit kimlik değeri. Sunucu tarafında istek yetkilendirmesi için zorunludur.
+
+X-ASBD-ID
+198387
+Instagram web istemcisinin güvenlik protokolleri tarafından doğrulanan yapısal parametresi.
+
+X-CSRFToken
+aktif_csrftoken_degeri
+Çerezler arasından okunan Cross-Site Request Forgery koruma belirteci.
+
+X-IG-WWW-Claim
+hmac.AR2UcqjiJ0jR8GfheXDEmjbbW...
+Kullanıcının tarayıcı oturumuna ait hak taleplerini doğrulayan şifrelenmiş imza değeri.
+
+X-Requested-With
+XMLHttpRequest
+İsteğin tarayıcı arkasında asenkron bir AJAX çağrısı olarak yapıldığını gösterir.
+
+Referer
+https://www.instagram.com/
+İsteğin kaynaklandığı güvenlik alanını (origin) doğrular.
+
+Cookie
+mid=...; ig_did=...; csrf[span_36](start_span)[span_36](end_span)[span_39](start_span)[span_39](end_span)[span_42](start_span)[span_42](end_span)token=...; sessionid=...
+Oturum kararlılığını sağlayan çerez kümesi. Checkpoint aşamasında bu çerezlerin taşınması zorunludur.
+
+
+Doğrulama Kodunun Tetiklenmesi ve Gönderilmesi Protokolü
+Kullanıcının hesabına kayıtlı olan telefon numarasına veya e-posta adresine doğrulama kodunun gönderilmesi, ardışık üç temel HTTP isteğiyle gerçekleştirilir. [1][2][3][4][5][6][7][8]
+1. Adım: Sınama Detaylarının Sorgulanması (GET)
+İlk olarak, sunucunun döndüğü ⁠checkpoint_url⁠ yoluna uygun bir GET isteği atılarak hesaba bağlı hangi iletişim kanallarının (SMS veya E-posta) aktif olduğu sorgulanır.
+Sunucu bu isteğe karşılık ⁠step_name: "select_verify_method"⁠ parametresini içeren ve mevcut yöntemleri listeleyen bir JSON nesnesi döner. Bu nesnede kullanıcının maskelenmiş telefon numarası ve e-posta adresi yer alır. [1][2][3][4]
+2. Adım: Yöntem Seçimi ve Doğrulama Kodunun Tetiklenmesi (POST)
+Instagram sisteminin kod üretmesini ve bu kodu belirtilen adrese göndermesini sağlamak için sunucuya seçim parametresini içeren bir POST isteği gönderilmelidir. Bu işlem doğrudan "checkpoint üzerinden kodun gelmesini sağlayan" tetikleyici adımdır.
+Tetikleme POST İstek Gövdesi (Payload)
+Parametre
+Değer Tipi
+Değer / Açıklama
+Kaynak
+choice
+String
+Genellikle SMS kanalı için "0", kayıtlı E-posta adresi için "1" değeri gönderilir.
+
+_csrftoken
+String
+Çerezlerden (Cookie) elde edilen güncel CSRF belirteci.
+
+device_id
+String
+Sınama oturumunu yürüten cihazın benzersiz tanımlayıcısı.
+
+guid
+String
+Oturum açma akışı sırasında üretilen küresel benzersiz kimlik (UUID).
+
+
+Bu istek başarıyla gönderildiğinde sunucu arka planda OTP (One-Time Password) kodunu üretir, ilgili kanala (SMS/E-posta) iletir ve istemciye ⁠{"status": "ok"}⁠ durum yanıtını döner. [1][2]
+3. Adım: Gelen Kodun Sunucuya Gönderilmesi ve Doğrulama (POST)
+Kullanıcıya veya entegre sisteme (örneğin IMAP ile otomatik okunan bir e-posta kutusuna) ulaşan 6 haneli doğrulama kodu alındıktan sonra sınamayı tamamlamak için son doğrulama isteği gönderilir. [1][2]
+￼ İstek Tipi: ⁠POST⁠
+￼ İstek URL Yapısı: ⁠https://i.insta[span_72](start_span)[span_72](end_span)gram.com/api/v1/challenge/<user_id>/<nonce_code>/⁠
+￼ İçerik Tipi: ⁠application/[span_54](start_span)[span_54](end_span)[span_58](start_span)[span_58](end_span)x-www-fo[span_73](start_span)[span_73](end_span)rm-urlencoded⁠
+Doğrulama POST İstek Gövdesi (Payload)
+Parametre
+Değer Tipi
+Açıklama
+Kaynak
+security_code
+String
+Kullanıcıya SMS ya da E-posta kanalıyla ulaşan 6 haneli doğrulama kodu.
+
+_csrftoken
+String
+Güvenlik protokolleri için oturumdan alınan CSRF belirteci.
+
+
+Doğrulama başarılı olduğunda sunucu ⁠{"action": "close", "status": "ok"}⁠ yanıtını döndürerek sınama oturumunu kapatır ve oturumu geçerli kılar. [1][2]
+Python ile Checkpoint Yönetimi ve Kod Tetikleme Entegrasyonu
+
+Aşağıdaki Python sınıfı, modern Instagram güvenlik duvarlarını aşmak amacıyla geliştirilmiştir. Sınıf, Python'un varsayılan ⁠requests⁠ kütüphanesinin taşıdığı belirgin TLS imzasını gizlemek ve gerçek bir Chrome tarayıcıyı simüle etmek için ⁠curl_cffi⁠ kütüphanesini kullanmaktadır.
+Entegrasyon Süreçleri ve Kararlılık Önerileri
+Doğrulama protokolünün kararlı bir şekilde çalışması ve hesapların kalıcı olarak engellenmemesi (banned) için otomasyon mimarisinde aşağıdaki teknik standartlar uygulanmalıdır:
+
+1, https://scrapfly.io/blog/posts/how-to-scrape-instagram (How to Scrape Instagram in 2026 - Scrapfly)
+2, https://www.socialcrawl.dev/blog/instagram-scraping-2026 (Instagram Scraping in 2026: What Works, What It Costs - SocialCrawl)
+3, https://scrapfly.io/blog/posts/how-to-scrape-instagram (How to Scrape Instagram in 2026 - Scrapfly)
+4, https://www.socialcrawl.dev/blog/instagram-scraping-2026 (Instagram Scraping in 2026: What Works, What It Costs - SocialCrawl)
+5, https://www.datadwip.com/blog/how-to-scrape-instagram/ (How to Scrape Instagram in 2026: Complete Guide | DataDwip Blog)
+6, https://github.com/b31ngd3v/MyIGBot/blob/main/myigbot.py (MyIGBot/myigbot.py at main · b31ngd3v/MyIGBot - GitHub)
+7, https://github.com/dilame/instagram-private-api/issues/1068 (Challenge state · Issue #1068 · dilame/instagram-private-api - GitHub)
+8, https://github.com/pgrimaud/instagram-user-feed/issues/69 (https://www.instagram.com/accounts/login/ajax/` resulted in a `400 Bad Request` · Issue #69 · pgrimaud/instagram-user-feed - GitHub)
