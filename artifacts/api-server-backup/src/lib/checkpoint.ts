@@ -25,10 +25,18 @@ export interface CheckpointState {
   cookies: string[];              // Set-Cookie values from the failed login
   csrfToken: string;
   username: string;
+  // Which client type produced this checkpoint. The challenge session Instagram
+  // creates is bound to the client that triggered it — an auth_platform checkpoint
+  // born from the browser-style web login (accounts/login/ajax) is only solvable
+  // through the www.instagram.com JSON API with browser headers; one born from the
+  // real mobile private API is only solvable through i.instagram.com with Android
+  // headers. Crossing the two makes Instagram silently reply {action:"close"}.
+  origin: "web" | "mobile";
   // Populated after startChallenge():
   verifyMethod?: "sms" | "email" | "unknown";
   contact?: string;               // masked phone/email
-  usesMobileApi?: boolean;        // true → use /api/v1/challenge/ for verify
+  usesMobileApi?: boolean;        // true → use i.instagram.com/api/v1/challenge/ for verify
+  usesWebPlatformApi?: boolean;   // true → use www.instagram.com/api/v1/challenge/ for verify
   mobileUuid?: string;
   mobileDeviceId?: string;
 }
@@ -101,6 +109,191 @@ async function mobileHeaders(state: CheckpointState): Promise<Record<string, str
 function isWafBlockBody(rawText: string): boolean {
   const t = rawText.trim();
   return t.length > 0 && !t.startsWith("{") && !t.startsWith("[");
+}
+
+// ── Web-platform API challenge (auth_platform, born from a browser-style login) ──
+// Same JSON endpoint shape as the mobile private API, but served on www.instagram.com
+// with browser identity (web X-IG-App-ID, Chrome UA, XHR headers) instead of the
+// Android app identity — because the challenge session is bound to whichever client
+// (web vs mobile) actually triggered the checkpoint.
+
+async function webPlatformHeaders(state: CheckpointState): Promise<Record<string, string>> {
+  return {
+    "User-Agent":
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    Accept:             "*/*",
+    "X-IG-App-ID":      "936619743392459",
+    "X-ASBD-ID":        "198387",
+    "X-CSRFToken":      state.csrfToken,
+    "X-Requested-With": "XMLHttpRequest",
+    "X-IG-WWW-Claim":   "0",
+    "Accept-Language":  "en-US,en;q=0.9",
+    "Sec-Fetch-Site":   "same-origin",
+    "Sec-Fetch-Mode":   "cors",
+    "Sec-Fetch-Dest":   "empty",
+    Origin:             IG_WEB_BASE,
+    Referer:            new URL(state.checkpointUrl, IG_WEB_BASE).toString(),
+    Cookie:             cookieStrFrom(state.cookies),
+  };
+}
+
+async function startWebPlatformChallenge(state: CheckpointState): Promise<StartChallengeResult> {
+  const uuid     = randomUUID().replace(/-/g, "");
+  const deviceId = "web-" + randomBytes(8).toString("hex");
+  state.mobileUuid     = uuid;
+  state.mobileDeviceId = deviceId;
+
+  const hdrs = await webPlatformHeaders(state);
+  const infoUrl =
+    `${IG_WEB_BASE}/api/v1/challenge/` +
+    `?challenge_url=${encodeURIComponent(state.checkpointUrl)}` +
+    `&guid=${uuid}&device_id=${deviceId}&_uuid=${uuid}`;
+
+  let method: "sms" | "email" | "unknown" = "unknown";
+  let contact: string | undefined;
+
+  try {
+    const r = await fetch(infoUrl, { headers: hdrs });
+    absorb(state, r.headers);
+    const rawText = await r.text();
+    logger.info({ status: r.status, body: rawText.slice(0, 400) }, "checkpoint: web-platform GET raw");
+
+    if (isWafBlockBody(rawText)) {
+      logger.warn({ status: r.status, body: rawText.slice(0, 200) }, "checkpoint: web-platform GET blocked by edge (non-JSON)");
+      return {
+        success: false,
+        error: `Instagram bu isteği reddetti (${rawText.trim().slice(0, 120)}). Sunucunun IP adresi engellenmiş olabilir.`,
+      };
+    }
+
+    const data = JSON.parse(rawText) as any;
+    logger.info({ stepName: data.step_name, phone: data.phone_number, email: data.email, action: data.action }, "checkpoint: web-platform GET");
+
+    if (data.phone_number) { method = "sms";   contact = data.phone_number; }
+    else if (data.email)   { method = "email"; contact = data.email; }
+  } catch (err) {
+    logger.warn({ err }, "checkpoint: web-platform GET failed");
+    return { success: false, error: `Instagram'a bağlanılamadı: ${String(err)}` };
+  }
+
+  state.verifyMethod = method;
+  state.contact      = contact;
+
+  const choice = method === "email" ? "0" : "1";
+  const body = new URLSearchParams({
+    choice,
+    _uuid:      uuid,
+    _csrftoken: state.csrfToken,
+    guid:       uuid,
+    device_id:  deviceId,
+  }).toString();
+
+  try {
+    const r = await fetch(`${IG_WEB_BASE}/api/v1/challenge/`, {
+      method: "POST",
+      headers: {
+        ...await webPlatformHeaders(state),
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body,
+    });
+    absorb(state, r.headers);
+    const rawText = await r.text();
+    logger.info({ status: r.status, body: rawText.slice(0, 400) }, "checkpoint: web-platform choice POST raw");
+
+    if (isWafBlockBody(rawText)) {
+      logger.warn({ status: r.status, body: rawText.slice(0, 200) }, "checkpoint: web-platform choice POST blocked by edge (non-JSON)");
+      return {
+        success: false,
+        error: `Instagram bu isteği reddetti (${rawText.trim().slice(0, 120)}). Sunucunun IP adresi engellenmiş olabilir.`,
+      };
+    }
+
+    const data = JSON.parse(rawText) as any;
+    logger.info({ stepName: data.step_name, status: r.status, action: data.action }, "checkpoint: web-platform choice POST");
+
+    if (data.action === "close" && !data.phone_number && !data.email) {
+      // Instagram closed the challenge without offering a code — this checkpoint
+      // can't be resolved via the web-platform JSON API for this session either.
+      return {
+        success: false,
+        error: "Instagram bu oturum için doğrulama kodu göndermeyi reddetti. Hesap, bu sunucudan gelen girişleri script/bot olarak işaretlemiş olabilir.",
+      };
+    }
+
+    if (data.step_name === "verify_code" || r.ok) {
+      state.usesWebPlatformApi = true;
+      if (data.phone_number && !contact) { method = "sms"; contact = data.phone_number; state.verifyMethod = "sms"; state.contact = contact; }
+      if (data.email && !contact)        { method = "email"; contact = data.email; state.verifyMethod = "email"; state.contact = contact; }
+      return { success: true, method, contact };
+    }
+
+    return { success: false, error: data.message ?? "Instagram doğrulama kodu gönderemedi" };
+  } catch (err) {
+    logger.warn({ err }, "checkpoint: web-platform choice POST failed");
+    return { success: false, error: String(err) };
+  }
+}
+
+async function verifyWebPlatform(state: CheckpointState, code: string): Promise<LoginResult> {
+  const uuid     = state.mobileUuid     ?? randomUUID().replace(/-/g, "");
+  const deviceId = state.mobileDeviceId ?? "web-" + randomBytes(8).toString("hex");
+
+  let resp: Response;
+  try {
+    resp = await fetch(`${IG_WEB_BASE}/api/v1/challenge/`, {
+      method: "POST",
+      headers: {
+        ...await webPlatformHeaders(state),
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        security_code: code,
+        _uuid:         uuid,
+        _csrftoken:    state.csrfToken,
+        guid:          uuid,
+        device_id:     deviceId,
+      }).toString(),
+    });
+  } catch (err) {
+    return { success: false, error: `Network error: ${String(err)}`, errorType: "network" };
+  }
+
+  absorb(state, resp.headers);
+  const text = await resp.text().catch(() => "");
+  logger.info({ status: resp.status, preview: text.slice(0, 200) }, "checkpoint: web-platform verify");
+
+  if (isWafBlockBody(text)) {
+    logger.warn({ status: resp.status, body: text.slice(0, 200) }, "checkpoint: web-platform verify blocked by edge (non-JSON)");
+    return {
+      success: false,
+      error: `Instagram bu isteği reddetti (${text.trim().slice(0, 120)}). Sunucunun IP adresi engellenmiş olabilir.`,
+      errorType: "ip_block",
+    };
+  }
+
+  let data: any = {};
+  try { data = JSON.parse(text); } catch { /* HTML response */ }
+
+  if (data.logged_in_user) {
+    const u = data.logged_in_user;
+    const cookies = state.cookies;
+    let sessionId = "", csrfToken = state.csrfToken, userId = String(u.pk ?? "");
+    for (const c of cookies) {
+      const sid  = c.match(/sessionid=([^;]+)/);  if (sid)  sessionId  = sid[1];
+      const csrf = c.match(/csrftoken=([^;]+)/);  if (csrf) csrfToken  = csrf[1];
+    }
+    if (!sessionId) return { success: false, error: "Code accepted but no session cookie received", errorType: "no_session" };
+    clearPendingCheckpoint();
+    return await finalizeSession({ sessionId, csrfToken, userId, username: u.username ?? state.username });
+  }
+
+  if (data.step_name === "verify_code") {
+    return { success: false, error: "Kod hatalı veya süresi dolmuş. Lütfen tekrar dene.", errorType: "bad_code" };
+  }
+
+  const errMsg = data.message ?? data.errors?.nonce?.[0] ?? "Kod geçersiz veya süresi dolmuş.";
+  return { success: false, error: errMsg, errorType: "bad_code" };
 }
 
 async function startMobileChallenge(state: CheckpointState): Promise<StartChallengeResult> {
@@ -296,10 +489,14 @@ export interface StartChallengeResult {
 export async function startCheckpointChallenge(): Promise<StartChallengeResult> {
   if (!pending) return { success: false, error: "No pending checkpoint" };
 
-  // auth_platform uses Instagram's mobile challenge API (returns JSON, reliable)
-  // Legacy /challenge/{id}/{token}/ uses the web form flow
-  if (pending.checkpointUrl.includes("auth_platform") || pending.checkpointUrl.includes("apc=")) {
-    return await startMobileChallenge(pending);
+  const isAuthPlatform = pending.checkpointUrl.includes("auth_platform") || pending.checkpointUrl.includes("apc=");
+  if (isAuthPlatform) {
+    // The challenge session Instagram created is bound to whichever client
+    // (web login vs mobile app login) actually triggered it — crossing the two
+    // makes Instagram silently reply {action:"close"} without ever sending a code.
+    return pending.origin === "mobile"
+      ? await startMobileChallenge(pending)
+      : await startWebPlatformChallenge(pending);
   }
   return await startWebChallenge(pending);
 }
@@ -309,6 +506,9 @@ export async function verifyCheckpointCode(code: string): Promise<LoginResult> {
 
   if (pending.usesMobileApi) {
     return await verifyMobile(pending, code);
+  }
+  if (pending.usesWebPlatformApi) {
+    return await verifyWebPlatform(pending, code);
   }
   return await verifyWeb(pending, code);
 }

@@ -237,6 +237,7 @@ async function loginViaWebV0(username: string, password: string): Promise<LoginR
       cookies: [...cookies, ...loginCookies],
       csrfToken: newCsrfToken,
       username,
+      origin: "web",
     });
     return { success: false, error: "Doğrulama gerekiyor", errorType: "checkpoint", checkpointUrl: data.checkpoint_url };
   }
@@ -360,6 +361,7 @@ async function loginViaMobileApi(username: string, password: string): Promise<Lo
       cookies: [...initCookies, ...loginCookies],
       csrfToken: newCsrfToken,
       username,
+      origin: "mobile",
     });
     return { success: false, error: "Doğrulama gerekiyor", errorType: "checkpoint", checkpointUrl: data.checkpoint_url };
   }
@@ -513,6 +515,7 @@ async function loginViaWebFullEncryption(username: string, password: string): Pr
       cookies: [...bootstrap.cookies, ...loginCookies],
       csrfToken: newCsrfToken,
       username,
+      origin: "web",
     });
     return { success: false, error: "Doğrulama gerekiyor", errorType: "checkpoint", checkpointUrl: data.checkpoint_url };
   }
