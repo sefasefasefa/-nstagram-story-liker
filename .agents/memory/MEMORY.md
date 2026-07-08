@@ -1,1 +1,2 @@
 - [Artifact registration for imported projects](artifact-registration.md) — move dirs, createArtifact, restore source, delete backups, kill stale ports
+- [Silent route-mounting failures](router-index-mounting.md) — a router file that exists but isn't imported/mounted in routes/index.ts 404s silently; always verify every route file is actually wired up

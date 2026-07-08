@@ -200,6 +200,97 @@ function CheckpointVerify({
   );
 }
 
+// ── Session ID quick-login (primary path) ──────────────────────────────────────
+// Username/password login is almost always blocked by Instagram's anti-scripting
+// checkpoint when it originates from a datacenter IP (like this server's). Pasting
+// a sessionid cookie extracted from an already-logged-in browser works reliably,
+// so it's offered as the default, upfront option instead of a fallback.
+
+function SessionIdQuickLogin({ onSuccess }: { onSuccess: () => void }) {
+  const [sessionId, setSessionId] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    const sid = sessionId.trim();
+    if (sid.length < 10) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const r = await fetch('/api/session/from-id', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: sid }),
+      });
+      const data = await r.json();
+      if (data.success) {
+        onSuccess();
+      } else {
+        setError(data.error ?? 'SessionId geçersiz veya süresi dolmuş.');
+      }
+    } catch {
+      setError('Bağlantı hatası. Lütfen tekrar dene.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Card className="p-6 border-border bg-card shadow-xl space-y-4">
+      <div className="flex items-center gap-3">
+        <div className="p-2.5 rounded-full bg-primary/10 shrink-0">
+          <KeyRound className="w-5 h-5 text-primary" />
+        </div>
+        <div>
+          <h2 className="font-semibold text-foreground text-sm">Session ID ile giriş yap</h2>
+          <p className="text-xs text-muted-foreground">
+            Instagram bu sunucudan otomatik girişleri engelliyor — bunun yerine tarayıcında
+            zaten giriş yaptığın Instagram oturumundan <span className="font-mono text-[11px]">sessionid</span> çerezini yapıştır
+          </p>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-[11px] text-muted-foreground leading-relaxed">
+          instagram.com'da giriş yapmışken <span className="font-mono bg-muted/60 px-1 rounded text-[10px]">F12</span> → Application → Cookies → instagram.com → <span className="font-mono bg-muted/60 px-1 rounded text-[10px]">sessionid</span> değerini kopyala
+        </p>
+        <div className="flex gap-2">
+          <Input
+            value={sessionId}
+            onChange={e => setSessionId(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && submit()}
+            placeholder="sessionid değeri…"
+            className="h-9 text-xs font-mono bg-background border-border/60 focus-visible:ring-1 focus-visible:ring-primary"
+            disabled={loading}
+          />
+          <Button
+            size="sm"
+            className="h-9 px-3 bg-primary hover:bg-primary/90 text-white gap-1 shrink-0"
+            onClick={submit}
+            disabled={loading || sessionId.trim().length < 10}
+          >
+            {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ArrowRight className="w-3.5 h-3.5" />}
+          </Button>
+        </div>
+      </div>
+
+      {error && (
+        <div className="flex items-start gap-2 rounded-lg bg-destructive/10 border border-destructive/30 px-3 py-2">
+          <AlertTriangle className="w-3.5 h-3.5 text-destructive mt-0.5 shrink-0" />
+          <p className="text-xs text-destructive">{error}</p>
+        </div>
+      )}
+
+      <div className="rounded-lg border border-border/30 bg-card/20 px-3 py-2 flex items-start gap-2">
+        <ClipboardPaste className="w-3 h-3 text-muted-foreground/60 mt-0.5 shrink-0" />
+        <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
+          SessionID sadece bu uygulamaya kaydedilir, hiçbir yere gönderilmez. Ayrıca <span className="text-foreground/80">Oturum Yöneticisi</span> sayfasından tek tıkla bookmarklet ile de çıkarabilirsin.
+        </p>
+      </div>
+    </Card>
+  );
+}
+
 // ── Main Login component ──────────────────────────────────────────────────────
 
 export default function Login() {
@@ -212,6 +303,7 @@ export default function Login() {
   const autoStatus = useAutoStatus();
 
   const [checkpointUrl, setCheckpointUrl] = useState<string | null>(null);
+  const [showPasswordLogin, setShowPasswordLogin] = useState(false);
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
@@ -297,103 +389,110 @@ export default function Login() {
           </Card>
         )}
 
-        <Card className="p-8 border-border bg-card shadow-xl flex flex-col items-center">
-          <div className="mb-6 mt-2 text-center space-y-1">
-            <h1 className="text-3xl font-serif italic tracking-wide text-foreground">Instagram</h1>
-            <p className="text-xs text-muted-foreground">
-              Giriş yap — şifren şifrelenip kaydedilir, oturum otomatik yenilenir
-            </p>
-          </div>
+        <div className="text-center space-y-1 pb-1">
+          <h1 className="text-3xl font-serif italic tracking-wide text-foreground">Instagram</h1>
+        </div>
 
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="w-full space-y-3">
-              <FormField
-                control={form.control}
-                name="username"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormControl>
-                      <Input
-                        placeholder="Telefon, kullanıcı adı veya e-posta"
-                        className="bg-background text-sm h-10 border-border/60 focus-visible:ring-1 focus-visible:ring-border"
-                        autoComplete="username"
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="password"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormControl>
-                      <Input
-                        type="password"
-                        placeholder="Şifre"
-                        className="bg-background text-sm h-10 border-border/60 focus-visible:ring-1 focus-visible:ring-border"
-                        autoComplete="current-password"
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+        <SessionIdQuickLogin onSuccess={handleVerifySuccess} />
 
-              {form.formState.errors.root && (
-                isIpBlockError(form.formState.errors.root.message ?? '') ? (
-                  <div className="rounded-lg border border-yellow-500/40 bg-yellow-500/10 px-4 py-3 space-y-2">
-                    <div className="flex items-center gap-2 text-yellow-400 font-semibold text-sm">
-                      <AlertTriangle className="w-4 h-4 shrink-0" />
-                      Instagram sunucu IP'sini engelliyor
+        {!showPasswordLogin ? (
+          <button
+            type="button"
+            onClick={() => setShowPasswordLogin(true)}
+            className="w-full text-center text-xs text-muted-foreground hover:text-foreground transition-colors py-1"
+          >
+            Bunun yerine kullanıcı adı / şifre ile dene (genellikle engellenir)
+          </button>
+        ) : (
+          <Card className="p-6 border-border bg-card shadow-xl flex flex-col items-center">
+            <div className="mb-4 mt-1 text-center space-y-1">
+              <p className="text-xs text-muted-foreground">
+                Giriş yap — şifren şifrelenip kaydedilir, oturum otomatik yenilenir
+              </p>
+              <p className="text-[11px] text-yellow-400/80">
+                Bu sunucunun IP'si Instagram tarafından bot olarak işaretlenebilir ve doğrulama kodu gönderilmeyebilir.
+              </p>
+            </div>
+
+            <Form {...form}>
+              <form onSubmit={form.handleSubmit(onSubmit)} className="w-full space-y-3">
+                <FormField
+                  control={form.control}
+                  name="username"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormControl>
+                        <Input
+                          placeholder="Telefon, kullanıcı adı veya e-posta"
+                          className="bg-background text-sm h-10 border-border/60 focus-visible:ring-1 focus-visible:ring-border"
+                          autoComplete="username"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="password"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormControl>
+                        <Input
+                          type="password"
+                          placeholder="Şifre"
+                          className="bg-background text-sm h-10 border-border/60 focus-visible:ring-1 focus-visible:ring-border"
+                          autoComplete="current-password"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                {form.formState.errors.root && (
+                  isIpBlockError(form.formState.errors.root.message ?? '') ? (
+                    <div className="rounded-lg border border-yellow-500/40 bg-yellow-500/10 px-4 py-3 space-y-2">
+                      <div className="flex items-center gap-2 text-yellow-400 font-semibold text-sm">
+                        <AlertTriangle className="w-4 h-4 shrink-0" />
+                        Instagram sunucu IP'sini engelliyor
+                      </div>
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        Her iki giriş yolu da engellendi. Bunun yerine yukarıdaki Session ID alanını kullan.
+                      </p>
                     </div>
-                    <p className="text-xs text-muted-foreground leading-relaxed">
-                      Her iki giriş yolu da engellendi. Bunun yerine tarayıcından çerezleri doğrudan{' '}
-                      <strong className="text-foreground">Oturum Yöneticisi</strong> ile yapıştır.
-                    </p>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="w-full border-yellow-500/50 text-yellow-400 hover:bg-yellow-500/10 gap-2 text-xs"
-                      onClick={() => setLocation('/session')}
-                    >
-                      <KeyRound className="w-3 h-3" />
-                      Oturum Yöneticisi'ni aç
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="text-destructive text-sm text-center py-1">
-                    {form.formState.errors.root.message}
-                  </div>
-                )
-              )}
-
-              <Button
-                type="submit"
-                className="w-full bg-primary hover:bg-primary/90 text-white font-semibold mt-1 h-9 rounded-lg"
-                disabled={loginMutation.isPending}
-              >
-                {loginMutation.isPending ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  'Giriş Yap'
+                  ) : (
+                    <div className="text-destructive text-sm text-center py-1">
+                      {form.formState.errors.root.message}
+                    </div>
+                  )
                 )}
-              </Button>
 
-              <div className="pt-2 flex items-start gap-2 text-[11px] text-muted-foreground bg-muted/20 rounded-lg px-3 py-2">
-                <RefreshCw className="w-3 h-3 mt-0.5 shrink-0 text-primary/60" />
-                <span>
-                  Şifren cihazında AES-256 ile şifrelenerek saklanır.
-                  Oturum süresi dolduğunda otomatik yenilenir, tekrar giriş yapman gerekmez.
-                </span>
-              </div>
-            </form>
-          </Form>
-        </Card>
+                <Button
+                  type="submit"
+                  className="w-full bg-primary hover:bg-primary/90 text-white font-semibold mt-1 h-9 rounded-lg"
+                  disabled={loginMutation.isPending}
+                >
+                  {loginMutation.isPending ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    'Giriş Yap'
+                  )}
+                </Button>
+
+                <div className="pt-2 flex items-start gap-2 text-[11px] text-muted-foreground bg-muted/20 rounded-lg px-3 py-2">
+                  <RefreshCw className="w-3 h-3 mt-0.5 shrink-0 text-primary/60" />
+                  <span>
+                    Şifren cihazında AES-256 ile şifrelenerek saklanır.
+                    Oturum süresi dolduğunda otomatik yenilenir, tekrar giriş yapman gerekmez.
+                  </span>
+                </div>
+              </form>
+            </Form>
+          </Card>
+        )}
       </div>
     </div>
   );

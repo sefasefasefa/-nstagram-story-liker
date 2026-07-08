@@ -1,7 +1,5 @@
 import { Router } from "express";
-import { getSession, setSession, clearSession, isSessionActive } from "../lib/session.js";
 import { finalizeSession } from "../lib/auth-shared.js";
-import type { SessionInput } from "@workspace/api-zod";
 
 const router = Router();
 
@@ -65,43 +63,7 @@ router.post("/session/from-id", async (req, res) => {
   res.json(result);
 });
 
-router.get("/session", (_req, res) => {
-  const session = getSession();
-  res.json({
-    active: isSessionActive(),
-    username: session?.username,
-    userId: session?.userId,
-    csrfToken: session?.csrfToken ? "***" + session.csrfToken.slice(-4) : undefined,
-    hasSessionId: !!session?.sessionId,
-  });
-});
-
-router.post("/session", (req, res) => {
-  const body = req.body as SessionInput;
-  if (!body.sessionId || !body.csrfToken) {
-    res.status(400).json({ success: false, error: "sessionId and csrfToken are required" });
-    return;
-  }
-  setSession({
-    sessionId: body.sessionId,
-    csrfToken: body.csrfToken,
-    username: body.username,
-    userId: body.userId,
-    dsUserId: body.dsUserId,
-  });
-  const session = getSession()!;
-  res.json({
-    active: true,
-    username: session.username,
-    userId: session.userId,
-    csrfToken: "***" + session.csrfToken.slice(-4),
-    hasSessionId: true,
-  });
-});
-
-router.delete("/session", (_req, res) => {
-  clearSession();
-  res.json({ success: true, message: "Session cleared" });
-});
+// NOTE: GET/POST/DELETE /session are owned by auth.ts (mounted earlier in
+// routes/index.ts) — do not redefine them here to avoid shadowed duplicates.
 
 export default router;
