@@ -157,10 +157,6 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
             </div>
           </Card>
         </div>
-
-        <p className="text-center text-white/25 text-xs pt-2">
-          Bu ekran örnek verilerle hazırlanmış bir tasarım önizlemesidir. Gerçek Instagram bağlantısı yoktur.
-        </p>
       </div>
     </div>
   );

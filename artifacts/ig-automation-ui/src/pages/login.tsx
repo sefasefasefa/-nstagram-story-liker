@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Instagram, Lock, User, ArrowRight, ShieldCheck } from "lucide-react";
+import { Instagram, Lock, User, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
@@ -51,10 +51,6 @@ export default function Login({ onLogin }: { onLogin: () => void }) {
           </Button>
         </div>
 
-        <div className="flex items-center gap-2 mt-6 text-white/35 text-xs justify-center">
-          <ShieldCheck className="w-3.5 h-3.5" />
-          <span>Bu bir tasarım örneğidir — gerçek giriş yapılmaz</span>
-        </div>
       </Card>
     </div>
   );
