@@ -1,4 +1,4 @@
-modules = ["nodejs-24", "postgresql-16"]
+modules = ["nodejs-24", "postgresql-16", "python-3.12"]
 
 [deployment]
 deploymentTarget = "autoscale"
@@ -20,6 +20,7 @@ timeoutMs = 20000
 
 [nix]
 channel = "stable-25_05"
+packages = ["glibcLocales"]
 
 [[ports]]
 localPort = 8080
