@@ -1,0 +1,27 @@
+kind = "web"
+previewPath = "/ig-automation-ui/"
+title = "Instagram Otomasyon Paneli"
+version = "1.0.0"
+id = "artifacts/ig-automation-ui"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/ig-automation-ui/" ]
+localPort = 24105
+
+[services.development]
+run = "pnpm --filter @workspace/ig-automation-ui run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/ig-automation-ui", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/ig-automation-ui/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "24105"
+BASE_PATH = "/ig-automation-ui/"
