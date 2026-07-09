@@ -5,8 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 
 export default function Login({ onLogin }: { onLogin: () => void }) {
-  const [username, setUsername] = useState("ayse.demir");
-  const [password, setPassword] = useState("••••••••••");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
 
   return (
     <div className="min-h-screen w-full bg-gradient-to-br from-[#1a0f2e] via-[#2b1050] to-[#4a1942] flex items-center justify-center p-6">

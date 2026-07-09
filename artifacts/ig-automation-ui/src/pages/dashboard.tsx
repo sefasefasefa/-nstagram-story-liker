@@ -8,10 +8,8 @@ import {
   Calendar,
   CalendarDays,
   Infinity as InfinityIcon,
-  Film,
-  Image as ImageIcon,
-  BookOpen,
   LogOut,
+  Inbox,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
@@ -19,29 +17,46 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
-const followedAccounts = [
-  { name: "melis.ozturk", likes: 128, avatarColor: "from-pink-400 to-rose-500" },
-  { name: "kerem.aydin", likes: 96, avatarColor: "from-indigo-400 to-violet-500" },
-  { name: "defne.travel", likes: 84, avatarColor: "from-amber-400 to-orange-500" },
-  { name: "burak.fit", likes: 71, avatarColor: "from-emerald-400 to-teal-500" },
-  { name: "elif.art", likes: 63, avatarColor: "from-sky-400 to-blue-500" },
+export type FollowedAccount = {
+  name: string;
+  likes: number;
+  avatarColor?: string;
+};
+
+export type ActivityItem = {
+  user: string;
+  type: string;
+  icon: React.ComponentType<{ className?: string }>;
+  time: string;
+};
+
+export type DashboardProps = {
+  onLogout: () => void;
+  accountHandle?: string;
+  stats?: {
+    today: number;
+    month: number;
+    year: number;
+    allTime: number;
+  };
+  followedAccounts?: FollowedAccount[];
+  activityFeed?: ActivityItem[];
+};
+
+const statConfig = [
+  { key: "today" as const, label: "Bugün", icon: Clock },
+  { key: "month" as const, label: "Bu Ay", icon: Calendar },
+  { key: "year" as const, label: "Bu Yıl", icon: CalendarDays },
+  { key: "allTime" as const, label: "Tüm Zamanlar", icon: InfinityIcon },
 ];
 
-const statPeriods = [
-  { label: "Bugün", value: "42", icon: Clock },
-  { label: "Bu Ay", value: "1.284", icon: Calendar },
-  { label: "Bu Yıl", value: "9.630", icon: CalendarDays },
-  { label: "Tüm Zamanlar", value: "24.912", icon: InfinityIcon },
-];
-
-const activityFeed = [
-  { user: "melis.ozturk", type: "Hikaye", icon: BookOpen, time: "2 dk önce" },
-  { user: "kerem.aydin", type: "Reels", icon: Film, time: "9 dk önce" },
-  { user: "defne.travel", type: "Gönderi", icon: ImageIcon, time: "24 dk önce" },
-  { user: "elif.art", type: "Hikaye", icon: BookOpen, time: "41 dk önce" },
-];
-
-export default function Dashboard({ onLogout }: { onLogout: () => void }) {
+export default function Dashboard({
+  onLogout,
+  accountHandle,
+  stats,
+  followedAccounts = [],
+  activityFeed = [],
+}: DashboardProps) {
   const [active, setActive] = useState(true);
 
   return (
@@ -55,7 +70,7 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
             </div>
             <div>
               <h1 className="font-semibold text-lg leading-tight">Otomasyon Paneli</h1>
-              <p className="text-white/40 text-xs">@ayse.demir</p>
+              <p className="text-white/40 text-xs">{accountHandle ? `@${accountHandle}` : "Hesap bağlı değil"}</p>
             </div>
           </div>
 
@@ -81,23 +96,31 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
         </div>
 
         {/* Stat cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {statPeriods.map((s) => (
-            <Card
-              key={s.label}
-              className="bg-white/[0.05] border-white/10 rounded-2xl p-4 flex flex-col gap-3"
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-white/40 text-xs">{s.label}</span>
-                <s.icon className="w-4 h-4 text-white/30" />
-              </div>
-              <div className="flex items-center gap-2">
-                <Heart className="w-4 h-4 text-pink-500 fill-pink-500" />
-                <span className="text-2xl font-semibold tabular-nums">{s.value}</span>
-              </div>
-            </Card>
-          ))}
-        </div>
+        {stats === undefined ? (
+          <Card className="bg-white/[0.05] border-white/10 rounded-2xl p-5">
+            <EmptyState label="Henüz istatistik yok" />
+          </Card>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {statConfig.map((s) => (
+              <Card
+                key={s.key}
+                className="bg-white/[0.05] border-white/10 rounded-2xl p-4 flex flex-col gap-3"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-white/40 text-xs">{s.label}</span>
+                  <s.icon className="w-4 h-4 text-white/30" />
+                </div>
+                <div className="flex items-center gap-2">
+                  <Heart className="w-4 h-4 text-pink-500 fill-pink-500" />
+                  <span className="text-2xl font-semibold tabular-nums">
+                    {stats[s.key].toLocaleString("tr-TR")}
+                  </span>
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
 
         <div className="grid md:grid-cols-5 gap-6">
           {/* Followed accounts leaderboard */}
@@ -111,26 +134,32 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
                 {followedAccounts.length} hesap
               </Badge>
             </div>
-            <div className="space-y-1">
-              {followedAccounts.map((a, i) => (
-                <div
-                  key={a.name}
-                  className="flex items-center gap-3 py-2.5 px-2 rounded-xl hover:bg-white/[0.04] transition-colors"
-                >
-                  <span className="text-white/25 text-xs w-4">{i + 1}</span>
-                  <Avatar className="w-8 h-8">
-                    <AvatarFallback className={`bg-gradient-to-tr ${a.avatarColor} text-white text-xs`}>
-                      {a.name.slice(0, 2).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                  <span className="text-sm flex-1">{a.name}</span>
-                  <div className="flex items-center gap-1.5 text-white/60 text-sm tabular-nums">
-                    <Heart className="w-3.5 h-3.5 text-pink-500 fill-pink-500" />
-                    {a.likes}
+            {followedAccounts.length === 0 ? (
+              <EmptyState label="Henüz veri yok" />
+            ) : (
+              <div className="space-y-1">
+                {followedAccounts.map((a, i) => (
+                  <div
+                    key={a.name}
+                    className="flex items-center gap-3 py-2.5 px-2 rounded-xl hover:bg-white/[0.04] transition-colors"
+                  >
+                    <span className="text-white/25 text-xs w-4">{i + 1}</span>
+                    <Avatar className="w-8 h-8">
+                      <AvatarFallback
+                        className={`bg-gradient-to-tr ${a.avatarColor ?? "from-white/20 to-white/10"} text-white text-xs`}
+                      >
+                        {a.name.slice(0, 2).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <span className="text-sm flex-1">{a.name}</span>
+                    <div className="flex items-center gap-1.5 text-white/60 text-sm tabular-nums">
+                      <Heart className="w-3.5 h-3.5 text-pink-500 fill-pink-500" />
+                      {a.likes}
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </Card>
 
           {/* Recent activity feed */}
@@ -139,25 +168,38 @@ export default function Dashboard({ onLogout }: { onLogout: () => void }) {
               <Clock className="w-4 h-4 text-white/50" />
               <h2 className="font-medium text-sm">Son Kontroller</h2>
             </div>
-            <div className="space-y-4">
-              {activityFeed.map((item, i) => (
-                <div key={i} className="flex items-start gap-3">
-                  <div className="w-7 h-7 rounded-lg bg-white/[0.08] flex items-center justify-center shrink-0 mt-0.5">
-                    <item.icon className="w-3.5 h-3.5 text-white/60" />
+            {activityFeed.length === 0 ? (
+              <EmptyState label="Henüz aktivite yok" />
+            ) : (
+              <div className="space-y-4">
+                {activityFeed.map((item, i) => (
+                  <div key={i} className="flex items-start gap-3">
+                    <div className="w-7 h-7 rounded-lg bg-white/[0.08] flex items-center justify-center shrink-0 mt-0.5">
+                      <item.icon className="w-3.5 h-3.5 text-white/60" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm">
+                        <span className="font-medium">{item.user}</span>{" "}
+                        <span className="text-white/50">{item.type.toLowerCase()} beğenildi</span>
+                      </p>
+                      <p className="text-white/30 text-xs mt-0.5">{item.time}</p>
+                    </div>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm">
-                      <span className="font-medium">{item.user}</span>{" "}
-                      <span className="text-white/50">{item.type.toLowerCase()} beğenildi</span>
-                    </p>
-                    <p className="text-white/30 text-xs mt-0.5">{item.time}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </Card>
         </div>
       </div>
+    </div>
+  );
+}
+
+function EmptyState({ label }: { label: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-2 py-10 text-white/30">
+      <Inbox className="w-6 h-6" />
+      <span className="text-sm">{label}</span>
     </div>
   );
 }
